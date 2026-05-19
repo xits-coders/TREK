@@ -432,7 +432,7 @@ export function loginUser(body: {
   auditAction?: string;
   auditDetails?: Record<string, unknown>;
 } {
-  if (isOidcOnlyMode()) {
+  if (isOidcOnlyMode() && !process.env.LDAP_URL) {
     return { error: 'Password authentication is disabled. Please sign in with SSO.', status: 403 };
   }
 
@@ -489,6 +489,82 @@ export function loginUser(body: {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// LDAP login — async wrapper (FreeIPA / OpenLDAP)
+// ---------------------------------------------------------------------------
+export async function ldapLoginUser(body: {
+  email?: string;
+  password?: string;
+}): Promise<ReturnType<typeof loginUser>> {
+  const { getLdapConfig, ldapAuthenticate } = await import('./ldapService');
+
+  if (!getLdapConfig()) {
+    return loginUser(body);
+  }
+
+  const { email: usernameOrEmail, password } = body;
+  if (!usernameOrEmail || !password) {
+    return { error: 'Email and password are required', status: 400 };
+  }
+
+  const username = usernameOrEmail.includes('@')
+    ? usernameOrEmail.split('@')[0]
+    : usernameOrEmail;
+
+  let ldapUser;
+  try {
+    ldapUser = await ldapAuthenticate(username, password);
+  } catch (err) {
+    console.error('[LDAP] Authentication error:', err);
+    return { error: 'LDAP authentication failed', status: 502 };
+  }
+
+  if (!ldapUser) {
+    // User nicht in LDAP — lokalen Login versuchen (z.B. lokaler Admin)
+    return loginUser(body);
+  }
+
+  const role: 'admin' | 'user' = ldapUser.isAdmin ? 'admin' : 'user';
+  let user = db.prepare(
+    'SELECT * FROM users WHERE LOWER(email) = LOWER(?)'
+  ).get(ldapUser.email) as User | undefined;
+
+  if (user) {
+    if (user.role !== role) {
+      db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, user.id);
+      user = { ...user, role } as User;
+    }
+  } else {
+    let uname = ldapUser.uid.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 30) || 'user';
+    const conflict = db.prepare(
+      'SELECT id FROM users WHERE LOWER(username) = LOWER(?)'
+    ).get(uname);
+    if (conflict) uname = uname + '_' + String(Date.now() % 10000);
+
+    const result = db.prepare(
+      'INSERT INTO users (username, email, password_hash, role, first_seen_version, login_count) VALUES (?, ?, ?, ?, ?, 0)'
+    ).run(uname, ldapUser.email, '!ldap', role, process.env.APP_VERSION || '0.0.0');
+
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(
+      Number(result.lastInsertRowid)
+    ) as User;
+  }
+
+  db.prepare(
+    'UPDATE users SET login_count = login_count + 1, last_login = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(user.id);
+
+  const token = generateToken(user);
+  const userSafe = stripUserForClient(user) as Record<string, unknown>;
+  return {
+    token,
+    user: { ...userSafe, avatar_url: avatarUrl(user) },
+    auditUserId: Number(user.id),
+    auditAction: 'user.login',
+    auditDetails: { method: 'ldap', username },
+  };
+}
 // ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------

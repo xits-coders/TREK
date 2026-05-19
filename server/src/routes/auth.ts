@@ -13,6 +13,7 @@ import {
   validateInviteToken,
   registerUser,
   loginUser,
+  ldapLoginUser,
   getCurrentUser,
   changePassword,
   deleteAccount,
@@ -150,7 +151,7 @@ router.post('/register', authLimiter, (req: Request, res: Response) => {
 
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   const started = Date.now();
-  const result = loginUser(req.body);
+  const result = await ldapLoginUser(req.body);
   if (result.auditAction) {
     writeAudit({ userId: result.auditUserId ?? null, action: result.auditAction, ip: getClientIp(req), details: result.auditDetails });
   }
