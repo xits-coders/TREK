@@ -1,7 +1,7 @@
 /**
  * Unit tests for placeService — PLACE-SVC-001 through PLACE-SVC-025.
  * Uses a real in-memory SQLite DB so SQL logic is exercised faithfully.
- * Skips importGpx / importGoogleList / searchPlaceImage (require external I/O).
+ * External fetches are mocked where needed.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 
@@ -55,7 +55,7 @@ import { resetTestDb } from '../../helpers/test-db';
 import { createUser, createTrip, createPlace, createCategory, createTag } from '../../helpers/factories';
 import path from 'path';
 import fs from 'fs';
-import { listPlaces, createPlace as svcCreatePlace, getPlace, updatePlace, deletePlace, importGpx, importKmlPlaces, importGoogleList, searchPlaceImage } from '../../../src/services/placeService';
+import { listPlaces, createPlace as svcCreatePlace, getPlace, updatePlace, updatePlacesMany, deletePlace, importGpx, importKmlPlaces, importGoogleList, searchPlaceImage } from '../../../src/services/placeService';
 
 const GPX_FIXTURE = path.join(__dirname, '../../fixtures/test.gpx');
 const KML_FIXTURE = path.join(__dirname, '../../fixtures/test.kml');
@@ -230,6 +230,49 @@ describe('updatePlace', () => {
 
     const updated = updatePlace(String(trip.id), String(place.id), { tags: [] }) as any;
     expect(updated.tags).toHaveLength(0);
+  });
+});
+
+// ── updatePlacesMany ────────────────────────────────────────────────────────────
+
+describe('updatePlacesMany', () => {
+  it('PLACE-SVC-039 — applies the same fields to many places, preserving the rest', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    const a = createPlace(testDb, trip.id, { name: 'A' }) as any;
+    const b = createPlace(testDb, trip.id, { name: 'B' }) as any;
+    const c = createPlace(testDb, trip.id, { name: 'C' }) as any;
+
+    const updated = updatePlacesMany(String(trip.id), [a.id, b.id, c.id], { notes: 'visited', transport_mode: 'walking' });
+
+    expect(updated).toHaveLength(3);
+    for (const p of updated) {
+      expect((p as any).notes).toBe('visited');
+      expect((p as any).transport_mode).toBe('walking');
+    }
+    // Only the provided fields change — names are untouched.
+    expect(updated.map(p => (p as any).name).sort()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('PLACE-SVC-040 — skips ids that are not in the trip and reports the rest', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    const other = createTrip(testDb, user.id);
+    const mine = createPlace(testDb, trip.id, { name: 'Mine' }) as any;
+    const foreign = createPlace(testDb, other.id, { name: 'Foreign' }) as any;
+
+    const updated = updatePlacesMany(String(trip.id), [mine.id, foreign.id, 99999], { notes: 'tagged' });
+
+    expect(updated).toHaveLength(1);
+    expect((updated[0] as any).id).toBe(mine.id);
+    // The place from the other trip stays untouched.
+    expect((getPlace(String(other.id), String(foreign.id)) as any).notes).toBeNull();
+  });
+
+  it('PLACE-SVC-041 — returns [] for an empty id list', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    expect(updatePlacesMany(String(trip.id), [], { notes: 'x' })).toEqual([]);
   });
 });
 
@@ -541,20 +584,31 @@ describe('searchPlaceImage', () => {
     expect(result.status).toBe(404);
   });
 
-  it('PLACE-SVC-031 — returns 400 when user has no Unsplash API key', async () => {
+  it('PLACE-SVC-031 — searches Unsplash without a stored API key', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id);
     const place = createPlace(testDb, trip.id, { name: 'Eiffel Tower' }) as any;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [
+          { id: 'photo1', urls: { regular: 'https://img.example.com/1', thumb: 'https://img.example.com/t1' }, description: 'Tower', user: { name: 'Photographer' }, links: { html: 'https://unsplash.com/1' } },
+        ],
+      }),
+      status: 200,
+    }));
+
     const result = await searchPlaceImage(String(trip.id), String(place.id), user.id) as any;
-    expect(result.error).toMatch(/No Unsplash API key/);
-    expect(result.status).toBe(400);
+    expect(result.photos).toHaveLength(1);
+    const [url] = (fetch as any).mock.calls[0];
+    expect(url).toContain('https://unsplash.com/napi/search/photos?');
+    expect(url).not.toContain('client_id=');
   });
 
   it('PLACE-SVC-032 — returns photos when Unsplash API responds successfully', async () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id);
     const place = createPlace(testDb, trip.id, { name: 'Eiffel Tower' }) as any;
-    testDb.prepare('UPDATE users SET unsplash_api_key = ? WHERE id = ?').run('test-unsplash-key', user.id);
 
     const mockPhotos = [
       { id: 'photo1', urls: { regular: 'https://img.example.com/1', thumb: 'https://img.example.com/t1' }, description: 'Tower', user: { name: 'Photographer' }, links: { html: 'https://unsplash.com/1' } },

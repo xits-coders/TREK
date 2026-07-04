@@ -9,8 +9,10 @@ import {
   Plane, Hotel, Utensils, Train, Car, Ship, Bus, Sailboat, Bike, CarTaxiFront, Route, Ticket, FileText, MapPin,
   Calendar, Hash, CheckCircle2, Circle, Pencil, Trash2, Plus, ChevronDown, ChevronRight, Users,
   ExternalLink, BookMarked, Lightbulb, Link2, Clock, ArrowRight, AlertCircle, Download,
+  TramFront, Footprints, StickyNote,
 } from 'lucide-react'
 import { openFile } from '../../utils/fileDownload'
+import { TransitTitle, TransitLegChips, TransitMetaBadges, fmtTransitDuration } from './transitDisplay'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -37,6 +39,7 @@ const TYPE_OPTIONS = [
   { value: 'bicycle',     labelKey: 'reservations.type.bicycle',     Icon: Bike, color: '#84cc16' },
   { value: 'cruise',      labelKey: 'reservations.type.cruise',      Icon: Ship, color: '#0ea5e9' },
   { value: 'ferry',       labelKey: 'reservations.type.ferry',       Icon: Sailboat, color: '#0d9488' },
+  { value: 'transit',     labelKey: 'reservations.type.transit',     Icon: TramFront, color: '#7c3aed' },
   { value: 'transport_other', labelKey: 'reservations.type.transport_other', Icon: Route, color: '#6b7280' },
   { value: 'event',       labelKey: 'reservations.type.event',       Icon: Ticket, color: '#f59e0b' },
   { value: 'tour',        labelKey: 'reservations.type.tour',        Icon: Users, color: '#10b981' },
@@ -109,14 +112,17 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
   const hasCode = !!r.confirmation_number
   const dateCols = [hasDate, hasTime, hasCode].filter(Boolean).length
 
-  const TRANSPORT_TYPES_SET = new Set(['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transport_other'])
+  const TRANSPORT_TYPES_SET = new Set(['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other'])
   const isTransportType = TRANSPORT_TYPES_SET.has(r.type)
   const isHotel = r.type === 'hotel'
-  const startDay = r.day_id ? days.find(d => d.id === r.day_id)
-    : (isHotel && r.accommodation_start_day_id) ? days.find(d => d.id === r.accommodation_start_day_id)
+  // For a hotel linked to an accommodation, the accommodation's own start/end days are
+  // the source of truth for the stay range: a stale day_id left behind by a range edit
+  // would otherwise mislabel the card, so prefer the accommodation ids here (#1383).
+  const startDay = (isHotel && r.accommodation_start_day_id) ? days.find(d => d.id === r.accommodation_start_day_id)
+    : r.day_id ? days.find(d => d.id === r.day_id)
     : undefined
-  const endDay = r.end_day_id ? days.find(d => d.id === r.end_day_id)
-    : (isHotel && r.accommodation_end_day_id) ? days.find(d => d.id === r.accommodation_end_day_id)
+  const endDay = (isHotel && r.accommodation_end_day_id) ? days.find(d => d.id === r.accommodation_end_day_id)
+    : r.end_day_id ? days.find(d => d.id === r.end_day_id)
     : undefined
   const DayLabel = ({ day }: { day: typeof startDay }) => {
     if (!day) return null
@@ -129,7 +135,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
         <span>{name}</span>
         {badge && (
           <span className="text-content-faint bg-surface-secondary" style={{
-            fontSize: 10, fontWeight: 600,
+            fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600,
             padding: '1px 6px', borderRadius: 999,
           }}>{badge}</span>
         )}
@@ -156,14 +162,14 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
           <span className={confirmed ? 'text-[#16a34a]' : 'text-[#d97706]'} style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontSize: 12, fontWeight: 600,
+            fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600,
           }}>
             <span className={confirmed ? 'bg-[#16a34a]' : 'bg-[#d97706]'} style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0 }} />
             {confirmed ? t('reservations.confirmed') : t('reservations.pending')}
           </span>
           <span className="text-content-muted bg-surface-secondary" style={{
             display: 'inline-flex', alignItems: 'center', gap: 5,
-            fontSize: 12,
+            fontSize: 'calc(12px * var(--fs-scale-body, 1))',
             padding: '3px 8px', borderRadius: 6,
           }}>
             <TypeIcon size={12} style={{ color: typeInfo.color }} />
@@ -172,7 +178,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
           {r.needs_review ? (
             <span className="text-[#b45309] bg-[rgba(245,158,11,0.12)]" style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              fontSize: 11, fontWeight: 600,
+              fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 600,
               padding: '3px 8px', borderRadius: 6,
             }} title={t('reservations.needsReviewHint')}>
               <AlertCircle size={11} />
@@ -182,7 +188,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
           {r.external_source === 'airtrail' ? (
             <span
               className={r.sync_enabled ? 'text-[#2563eb] bg-[rgba(59,130,246,0.12)]' : 'text-content-faint bg-surface-tertiary'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 600, padding: '3px 8px', borderRadius: 6 }}
               title={r.sync_enabled ? t('reservations.airtrail.syncedHint') : t('reservations.airtrail.notSyncedHint')}
             >
               <Plane size={11} />
@@ -192,7 +198,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <span className="text-content" style={{
-            fontSize: 13, fontWeight: 600, marginRight: 6,
+            fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 600, marginRight: 6,
             maxWidth: 140, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>{r.title}</span>
           {canEdit && (
@@ -234,8 +240,10 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
             </div>
           </div>
         )}
-        {/* Date / Time row */}
-        {(hasDate || hasTime) && (
+        {/* Date / Time row — hidden for a hotel linked to an accommodation: its stay
+            already shows as the day-range label above, and a reservation_time stamped
+            on the auto-created reservation would otherwise duplicate it (#1383). */}
+        {(hasDate || hasTime) && !(isHotel && (r.accommodation_start_day_id || r.accommodation_end_day_id)) && (
           <div style={{ display: 'grid', gap: 10, gridTemplateColumns: hasDate && hasTime ? '1fr 1fr' : '1fr' }}>
             {hasDate && (
               <div>
@@ -269,7 +277,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
               onClick={() => blurCodes && setCodeRevealed(v => !v)}
               className={`${fieldValueClass} text-center`}
               style={{
-                fontFamily: '"SF Mono", "JetBrains Mono", Menlo, monospace', fontSize: 12.5,
+                fontFamily: '"SF Mono", "JetBrains Mono", Menlo, monospace', fontSize: 'calc(12.5px * var(--fs-scale-body, 1))',
                 filter: blurCodes && !codeRevealed ? 'blur(5px)' : 'none',
                 cursor: blurCodes ? 'pointer' : 'default',
                 transition: 'filter 0.2s',
@@ -288,7 +296,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
             <div className="bg-surface-tertiary text-content" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               padding: '8px 12px', borderRadius: 10,
-              fontSize: 12.5, flexWrap: 'wrap',
+              fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', flexWrap: 'wrap',
             }}>
               {eps.map((ep, i) => (
                 <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -312,7 +320,8 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
           if (!hasEndpoints && meta.arrival_airport) cells.push({ label: t('reservations.meta.to'), value: meta.arrival_airport })
           if (meta.train_number) cells.push({ label: t('reservations.meta.trainNumber'), value: meta.train_number })
           if (meta.platform) cells.push({ label: t('reservations.meta.platform'), value: meta.platform })
-          if (meta.seat) cells.push({ label: t('reservations.meta.seat'), value: meta.seat })
+          if (meta.seat) cells.push({ label: t('reservations.meta.seat'), value: meta.seat + (meta.class ? ` · ${meta.class}` : '') })
+          if (meta.price != null && meta.price !== '') cells.push({ label: t('reservations.price'), value: `${meta.price}${meta.priceCurrency ? ' ' + meta.priceCurrency : ''}` })
           if (meta.check_in_time) cells.push({ label: t('reservations.meta.checkIn'), value: formatTime(meta.check_in_time, locale, timeFormat) + (meta.check_in_end_time ? ` – ${formatTime(meta.check_in_end_time, locale, timeFormat)}` : '') })
           if (meta.check_out_time) cells.push({ label: t('reservations.meta.checkOut'), value: formatTime(meta.check_out_time, locale, timeFormat) })
           if (cells.length === 0) return null
@@ -360,6 +369,18 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
           </div>
         )}
 
+        {/* Link */}
+        {r.url && (
+          <div>
+            <div className={fieldLabelClass}>{t('reservations.urlLabel')}</div>
+            <div className={fieldValueClass} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+              <ExternalLink size={13} className="text-content-faint" style={{ flexShrink: 0 }} />
+              <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline"
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</a>
+            </div>
+          </div>
+        )}
+
         {/* Notes */}
         {r.notes && (
           <div>
@@ -378,7 +399,7 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
               {attachedFiles.map(f => (
                 <a key={f.id} href="#" onClick={(e) => { e.preventDefault(); openFile(f.url).catch(() => {}) }} style={{ display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none', cursor: 'pointer' }}>
                   <FileText size={11} className="text-content-faint" style={{ flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_name}</span>
+                  <span style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_name}</span>
                 </a>
               ))}
             </div>
@@ -405,20 +426,20 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
               }}>
                 <Trash2 size={18} strokeWidth={1.8} color="#ef4444" />
               </div>
-              <div className="text-content" style={{ fontSize: 14, fontWeight: 600 }}>
+              <div className="text-content" style={{ fontSize: 'calc(14px * var(--fs-scale-body, 1))', fontWeight: 600 }}>
                 {t('reservations.confirm.deleteTitle')}
               </div>
             </div>
-            <div className="text-content-secondary" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <div className="text-content-secondary" style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', lineHeight: 1.5 }}>
               {t('reservations.confirm.deleteBody', { name: r.title })}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
               <button onClick={() => setShowDeleteConfirm(false)} className="text-content-muted" style={{
-                fontSize: 12, background: 'none', border: '1px solid var(--border-primary)',
+                fontSize: 'calc(12px * var(--fs-scale-body, 1))', background: 'none', border: '1px solid var(--border-primary)',
                 borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit',
               }}>{t('common.cancel')}</button>
               <button onClick={handleDelete} className="bg-[#ef4444] text-white" style={{
-                fontSize: 12,
+                fontSize: 'calc(12px * var(--fs-scale-body, 1))',
                 border: 'none', borderRadius: 8, padding: '6px 16px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit',
               }}>{t('common.confirm')}</button>
             </div>
@@ -458,9 +479,9 @@ function Section({ title, count, children, defaultOpen = true, accent, storageKe
         userSelect: 'none',
       }}>
         {open ? <ChevronDown size={14} style={{ color: 'var(--text-faint)' }} /> : <ChevronRight size={14} style={{ color: 'var(--text-faint)' }} />}
-        <span className="text-content-muted" style={{ fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
+        <span className="text-content-muted" style={{ fontWeight: 600, fontSize: 'calc(12px * var(--fs-scale-body, 1))', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
         <span className="bg-surface-tertiary text-content-faint" style={{
-          fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
+          fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 600, padding: '2px 7px', borderRadius: 99,
           minWidth: 20, textAlign: 'center',
         }}>{count}</span>
       </button>
@@ -468,6 +489,95 @@ function Section({ title, count, children, defaultOpen = true, accent, storageKe
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(max(33.33% - 14px, 340px), 1fr))', gap: 14, alignItems: 'stretch' }}>
           {children}
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A transit journey's own card (#1065) — leg chips + journey stats instead of
+ * the generic booking layout. Clicking anywhere opens the journey view.
+ */
+function TransitJourneyCard({ r, days, onOpen, onDelete, canEdit }: {
+  r: Reservation
+  days: Day[]
+  onOpen: (r: Reservation) => void
+  onDelete: (id: number) => void
+  canEdit: boolean
+}) {
+  const { t, locale } = useTranslation()
+  const timeFormat = useSettingsStore(st => st.settings.time_format) || '24h'
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const meta = typeof r.metadata === 'string' ? (() => { try { return JSON.parse(r.metadata || '{}') } catch { return {} } })() : (r.metadata || {})
+  const transit = meta.transit && Array.isArray(meta.transit.legs) ? meta.transit : null
+  const { date, time } = splitReservationDateTime(r.reservation_time)
+  const { time: endTime } = splitReservationDateTime(r.reservation_end_time)
+  const day = r.day_id ? days.find(d => d.id === r.day_id) : undefined
+  const dateStr = date ? new Date(date + 'T00:00:00Z').toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : null
+  const mins = transit?.duration ? Math.round(transit.duration / 60) : null
+  return (
+    <div
+      className="bg-surface-card"
+      onClick={() => onOpen(r)}
+      style={{ borderRadius: 12, border: '1px solid rgba(124,58,237,0.22)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 9, cursor: 'pointer', transition: 'box-shadow 0.15s ease' }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.06)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 34, height: 34, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: 'rgba(124,58,237,0.1)' }}>
+          <TramFront size={16} strokeWidth={1.8} color="#7c3aed" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="text-content" style={{ fontSize: 'calc(13.5px * var(--fs-scale-body, 1))', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <TransitTitle title={r.title} iconSize={12} />
+          </div>
+          <div style={{ marginTop: 2 }}>
+            <TransitMetaBadges size="sm" items={[
+              { text: day ? (day.title || t('dayplan.dayN', { n: day.day_number })) : '' },
+              { icon: Calendar, text: dateStr || '' },
+              { icon: Clock, text: time ? `${formatTime(time, locale, timeFormat)}${endTime ? ` – ${formatTime(endTime, locale, timeFormat)}` : ''}` : '' },
+              { text: transit?.duration ? fmtTransitDuration(transit.duration, t) : '' },
+            ]} />
+          </div>
+        </div>
+        {canEdit && (
+          <button
+            onClick={e => { e.stopPropagation(); setConfirmOpen(true) }}
+            title={t('common.delete')}
+            className="bg-transparent text-content-faint"
+            style={{ appearance: 'none', border: 'none', width: 26, height: 26, borderRadius: 6, display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = '#ef4444' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-faint)' }}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+      {transit && (
+        <div style={{ paddingLeft: 44 }}>
+          <TransitLegChips legs={transit.legs} size="md" t={t} />
+        </div>
+      )}
+      {r.notes && (
+        <div className="text-content-faint" style={{ paddingLeft: 44, display: 'flex', alignItems: 'center', gap: 5, fontSize: 'calc(11px * var(--fs-scale-caption, 1))', minWidth: 0 }}>
+          <StickyNote size={11} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Markdown remarkPlugins={[remarkGfm]} allowedElements={['strong', 'em', 'del', 'code', 'a']} unwrapDisallowed>{r.notes.split('\n')[0]}</Markdown>
+          </span>
+        </div>
+      )}
+      {confirmOpen && ReactDOM.createPortal(
+        <div className="bg-[rgba(0,0,0,0.35)]" style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => { e.stopPropagation(); setConfirmOpen(false) }}>
+          <div className="bg-surface-card" style={{ borderRadius: 14, padding: 20, width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.22)' }} onClick={e => e.stopPropagation()}>
+            <div className="text-content" style={{ fontWeight: 600, fontSize: 'calc(14px * var(--fs-scale-body, 1))', marginBottom: 6 }}>{t('reservations.confirm.deleteTitle')}</div>
+            <div className="text-content-muted" style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', marginBottom: 14 }}>{t('reservations.confirm.deleteBody', { name: r.title })}</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={e => { e.stopPropagation(); setConfirmOpen(false) }} className="text-content-muted" style={{ padding: '7px 14px', borderRadius: 9, border: '1px solid var(--border-primary)', background: 'none', fontSize: 'calc(12px * var(--fs-scale-body, 1))', cursor: 'pointer', fontFamily: 'inherit' }}>{t('common.cancel')}</button>
+              <button onClick={e => { e.stopPropagation(); setConfirmOpen(false); onDelete(r.id) }} style={{ padding: '7px 14px', borderRadius: 9, border: 'none', background: '#ef4444', color: '#fff', fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{t('common.delete')}</button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -521,8 +631,12 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
     typeFilters.size === 0 ? reservations : reservations.filter(r => typeFilters.has(r.type)),
   [reservations, typeFilters])
 
-  const allPending = filtered.filter(r => r.status !== 'confirmed')
-  const allConfirmed = filtered.filter(r => r.status === 'confirmed')
+  // Automated public transit (#1065) gets its own section — journeys planned via
+  // the transit search live alongside manual transports without mixing in.
+  const transitEntries = filtered.filter(r => r.type === 'transit')
+  const nonTransit = filtered.filter(r => r.type !== 'transit')
+  const allPending = nonTransit.filter(r => r.status !== 'confirmed')
+  const allConfirmed = nonTransit.filter(r => r.status === 'confirmed')
   const total = filtered.length
 
   const usedTypes = useMemo(() => new Set(reservations.map(r => r.type)), [reservations])
@@ -541,7 +655,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
           padding: '14px 16px 14px 22px',
           display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
         }}>
-          <h2 className="text-content" style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', flexShrink: 0 }}>
+          <h2 className="text-content" style={{ margin: 0, fontSize: 'calc(18px * var(--fs-scale-subtitle, 1))', fontWeight: 600, letterSpacing: '-0.01em', flexShrink: 0 }}>
             {t(titleKey)}
           </h2>
 
@@ -555,7 +669,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                   style={{
                     appearance: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                     display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '6px 12px', borderRadius: 99, fontSize: 13, whiteSpace: 'nowrap',
+                    padding: '6px 12px', borderRadius: 99, fontSize: 'calc(13px * var(--fs-scale-body, 1))', whiteSpace: 'nowrap',
                     fontWeight: typeFilters.size === 0 ? 500 : 400,
                     boxShadow: typeFilters.size === 0 ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                     transition: 'all 0.15s ease',
@@ -563,7 +677,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                 >
                   {t('common.all')}
                   <span className={`text-content-faint ${typeFilters.size === 0 ? 'bg-surface-tertiary' : 'bg-[rgba(0,0,0,0.06)]'}`} style={{
-                    fontSize: 10, fontWeight: 600,
+                    fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600,
                     padding: '1px 6px', borderRadius: 99, minWidth: 16, textAlign: 'center',
                   }}>{reservations.length}</span>
                 </button>
@@ -578,7 +692,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                       style={{
                         appearance: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                         display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '6px 12px', borderRadius: 99, fontSize: 13, whiteSpace: 'nowrap',
+                        padding: '6px 12px', borderRadius: 99, fontSize: 'calc(13px * var(--fs-scale-body, 1))', whiteSpace: 'nowrap',
                         fontWeight: active ? 500 : 400,
                         boxShadow: active ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
                         transition: 'all 0.15s ease',
@@ -587,7 +701,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                       <Icon size={13} style={{ color: active ? opt.color : 'var(--text-faint)' }} />
                       {t(opt.labelKey)}
                       <span className={`text-content-faint ${active ? 'bg-surface-tertiary' : 'bg-[rgba(0,0,0,0.06)]'}`} style={{
-                        fontSize: 10, fontWeight: 600,
+                        fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600,
                         padding: '1px 6px', borderRadius: 99, minWidth: 16, textAlign: 'center',
                       }}>{typeCounts[opt.value] || 0}</span>
                     </button>
@@ -603,7 +717,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                 <button onClick={onImport} className="bg-surface-card text-content" style={{
                   appearance: 'none', border: '1px solid var(--border-primary)', cursor: 'pointer', fontFamily: 'inherit',
                   display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '8px 13px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+                  padding: '8px 13px', borderRadius: 10, fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500,
                   transition: 'opacity 0.15s ease',
                 }}
                   onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
@@ -618,7 +732,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
                 <button onClick={onAirTrailImport} className="bg-surface-secondary text-content" style={{
                   appearance: 'none', border: '1px solid var(--border-primary)', cursor: 'pointer', fontFamily: 'inherit',
                   display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 500, boxSizing: 'border-box',
+                  padding: '8px 14px', borderRadius: 10, fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, boxSizing: 'border-box',
                   transition: 'opacity 0.15s ease',
                 }}
                   onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
@@ -632,7 +746,7 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
               <button onClick={onAdd} className="bg-accent text-accent-text" style={{
                 appearance: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                 display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '9px 14px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+                padding: '9px 14px', borderRadius: 10, fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500,
                 transition: 'opacity 0.15s ease',
               }}
                 onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
@@ -651,15 +765,20 @@ export default function ReservationsPanel({ tripId, reservations, days, assignme
         {total === 0 && reservations.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <BookMarked size={36} className="text-content-faint" style={{ display: 'block', margin: '0 auto 12px' }} />
-            <p className="text-content-secondary" style={{ fontSize: 14, fontWeight: 600, margin: '0 0 4px' }}>{t('reservations.empty')}</p>
-            <p className="text-content-faint" style={{ fontSize: 12, margin: 0 }}>{t('reservations.emptyHint')}</p>
+            <p className="text-content-secondary" style={{ fontSize: 'calc(14px * var(--fs-scale-body, 1))', fontWeight: 600, margin: '0 0 4px' }}>{t('reservations.empty')}</p>
+            <p className="text-content-faint" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', margin: 0 }}>{t('reservations.emptyHint')}</p>
           </div>
         ) : total === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <p className="text-content-faint" style={{ fontSize: 13 }}>{t('places.noneFound')}</p>
+            <p className="text-content-faint" style={{ fontSize: 'calc(13px * var(--fs-scale-body, 1))' }}>{t('places.noneFound')}</p>
           </div>
         ) : (
           <>
+            {transitEntries.length > 0 && (
+              <Section title={t('transit.sectionTitle')} count={transitEntries.length} accent="gray" storageKey={`trek:bookings-transit-open:${tripId}`}>
+                {transitEntries.map(r => <TransitJourneyCard key={r.id} r={r} days={days} onOpen={onEdit} onDelete={onDelete} canEdit={canEdit} />)}
+              </Section>
+            )}
             {allPending.length > 0 && (
               <Section title={t('reservations.pending')} count={allPending.length} accent="gray" storageKey={`trek:bookings-pending-open:${tripId}`}>
                 {allPending.map(r => <ReservationCard key={r.id} r={r} tripId={tripId} onEdit={onEdit} onDelete={onDelete} files={files} onNavigateToFiles={onNavigateToFiles} assignmentLookup={assignmentLookup} canEdit={canEdit} days={days} />)}

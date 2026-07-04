@@ -54,6 +54,22 @@ function buildOptions(clear: boolean, secure: boolean, remember?: RememberOption
   };
 }
 
+/**
+ * True when we are about to set a `Secure` session cookie but the request did
+ * NOT arrive over HTTPS — the browser silently drops the cookie, so the next
+ * request has no session and the server answers "Access token required". This is
+ * the classic plain-HTTP install gotcha; callers surface it to the user with a
+ * concrete fix (use HTTPS or set COOKIE_SECURE=false) instead of a bare 401.
+ */
+export function willDropSecureCookie(req?: Request): boolean {
+  if (process.env.COOKIE_SECURE?.toLowerCase() === 'false') return false;
+  if (req?.secure === true) return false;
+  return (
+    process.env.NODE_ENV?.toLowerCase() === 'production' ||
+    process.env.FORCE_HTTPS?.toLowerCase() === 'true'
+  );
+}
+
 export function setAuthCookie(res: Response, token: string, req?: Request, remember?: RememberOption): void {
   res.cookie(COOKIE_NAME, token, cookieOptions(false, req, remember));
 }

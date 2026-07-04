@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { avatarUrl } from './avatarUrl';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
@@ -11,6 +12,8 @@ import { revokeUserSessions, revokeUserSessionsForClient } from '../mcp';
 import { deleteUserCompletely } from './userCleanupService';
 import { validatePassword } from './passwordPolicy';
 import { getPhotoProviderConfig } from './memories/helpersService';
+import { ADDON_IDS } from '../addons';
+import { prepareLlmAddonConfigForWrite, maskLlmAddonConfig } from './llmConfig';
 import { send as sendNotification } from './notificationService';
 import { resolveAuthToggles } from './authService';
 
@@ -57,8 +60,10 @@ export const isDocker = (() => {
 // ── User CRUD ──────────────────────────────────────────────────────────────
 
 export function listUsers() {
+  // Guests (#1362) are accountless trip participants, not real users — keep them out
+  // of admin user management entirely.
   const users = db.prepare(
-    'SELECT id, username, email, role, avatar, created_at, updated_at, last_login FROM users ORDER BY created_at DESC'
+    'SELECT id, username, email, role, avatar, created_at, updated_at, last_login FROM users WHERE COALESCE(is_guest, 0) = 0 ORDER BY created_at DESC'
   ).all() as (Pick<User, 'id' | 'username' | 'email' | 'role' | 'created_at' | 'updated_at' | 'last_login'> & { avatar?: string | null })[];
   let onlineUserIds = new Set<number>();
   try {
@@ -67,7 +72,7 @@ export function listUsers() {
   } catch { /* */ }
   return users.map(u => ({
     ...u,
-    avatar_url: u.avatar ? `/uploads/avatars/${u.avatar}` : null,
+    avatar_url: avatarUrl(u),
     created_at: utcSuffix(u.created_at),
     updated_at: utcSuffix(u.updated_at as string),
     last_login: utcSuffix(u.last_login),
@@ -91,10 +96,11 @@ export function createUser(data: { username: string; email: string; password: st
     return { error: 'Invalid role', status: 400 };
   }
 
-  const existingUsername = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  // Guests (#1362) live in a reserved synthetic namespace; never let one block a real account.
+  const existingUsername = db.prepare('SELECT id FROM users WHERE username = ? AND COALESCE(is_guest, 0) = 0').get(username);
   if (existingUsername) return { error: 'Username already taken', status: 409 };
 
-  const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existingEmail = db.prepare('SELECT id FROM users WHERE email = ? AND COALESCE(is_guest, 0) = 0').get(email);
   if (existingEmail) return { error: 'Email already taken', status: 409 };
 
   const passwordHash = bcrypt.hashSync(password, BCRYPT_COST);
@@ -127,11 +133,11 @@ export function updateUser(id: string, data: { username?: string; email?: string
   }
 
   if (username && username !== user.username) {
-    const conflict = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, id);
+    const conflict = db.prepare('SELECT id FROM users WHERE username = ? AND id != ? AND COALESCE(is_guest, 0) = 0').get(username, id);
     if (conflict) return { error: 'Username already taken', status: 409 };
   }
   if (email && email !== user.email) {
-    const conflict = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, id);
+    const conflict = db.prepare('SELECT id FROM users WHERE email = ? AND id != ? AND COALESCE(is_guest, 0) = 0').get(email, id);
     if (conflict) return { error: 'Email already taken', status: 409 };
   }
 
@@ -193,7 +199,7 @@ export function deleteUser(id: string, currentUserId: number) {
 // ── Stats ──────────────────────────────────────────────────────────────────
 
 export function getStats() {
-  const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users WHERE COALESCE(is_guest, 0) = 0').get() as { count: number }).count;
   const totalTrips = (db.prepare('SELECT COUNT(*) as count FROM trips').get() as { count: number }).count;
   const totalPlaces = (db.prepare('SELECT COUNT(*) as count FROM places').get() as { count: number }).count;
   const totalFiles = (db.prepare('SELECT COUNT(*) as count FROM trip_files').get() as { count: number }).count;
@@ -426,14 +432,20 @@ export async function checkAndNotifyVersion(): Promise<void> {
 
 export function listInvites() {
   return db.prepare(`
-    SELECT i.*, u.username as created_by_name
+    SELECT i.*, u.username as created_by_name, t.title as trip_title
     FROM invite_tokens i
     JOIN users u ON i.created_by = u.id
+    LEFT JOIN trips t ON i.trip_id = t.id
     ORDER BY i.created_at DESC
   `).all();
 }
 
-export function createInvite(createdBy: number, data: { max_uses?: string | number; expires_in_days?: string | number }) {
+/** Trips an admin can bind an invite to — id + title only, for the picker (#1402). */
+export function listTripsForInvite() {
+  return db.prepare('SELECT id, title FROM trips ORDER BY title COLLATE NOCASE ASC').all();
+}
+
+export function createInvite(createdBy: number, data: { max_uses?: string | number; expires_in_days?: string | number; trip_id?: string | number | null }) {
   const rawUses = parseInt(String(data.max_uses));
   const uses = rawUses === 0 ? 0 : Math.min(Math.max(rawUses || 1, 1), 5);
   const token = crypto.randomBytes(16).toString('hex');
@@ -441,19 +453,30 @@ export function createInvite(createdBy: number, data: { max_uses?: string | numb
     ? new Date(Date.now() + parseInt(String(data.expires_in_days)) * 86400000).toISOString()
     : null;
 
+  // Optional trip binding: only persist a trip that actually exists, so a stale
+  // or forged id can never bind (and never auto-adds anyone on registration).
+  let tripId: number | null = null;
+  if (data.trip_id != null && String(data.trip_id).trim() !== '') {
+    const parsed = parseInt(String(data.trip_id));
+    if (Number.isInteger(parsed) && db.prepare('SELECT id FROM trips WHERE id = ?').get(parsed)) {
+      tripId = parsed;
+    }
+  }
+
   const ins = db.prepare(
-    'INSERT INTO invite_tokens (token, max_uses, expires_at, created_by) VALUES (?, ?, ?, ?)'
-  ).run(token, uses, expiresAt, createdBy);
+    'INSERT INTO invite_tokens (token, max_uses, expires_at, created_by, trip_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(token, uses, expiresAt, createdBy, tripId);
 
   const inviteId = Number(ins.lastInsertRowid);
   const invite = db.prepare(`
-    SELECT i.*, u.username as created_by_name
+    SELECT i.*, u.username as created_by_name, t.title as trip_title
     FROM invite_tokens i
     JOIN users u ON i.created_by = u.id
+    LEFT JOIN trips t ON i.trip_id = t.id
     WHERE i.id = ?
   `).get(inviteId);
 
-  return { invite, inviteId, uses, expiresInDays: data.expires_in_days ?? null };
+  return { invite, inviteId, uses, expiresInDays: data.expires_in_days ?? null, tripId };
 }
 
 export function deleteInvite(id: string) {
@@ -529,11 +552,17 @@ export function getCollabFeatures() {
 
 export function updateCollabFeatures(features: { chat?: boolean; notes?: boolean; polls?: boolean; whatsnext?: boolean }) {
   const mapping: Record<string, string> = { chat: 'collab_chat_enabled', notes: 'collab_notes_enabled', polls: 'collab_polls_enabled', whatsnext: 'collab_whatsnext_enabled' };
+  const before = getCollabFeatures();
   const stmt = db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)");
   for (const [feat, key] of Object.entries(mapping)) {
     if (features[feat] !== undefined) stmt.run(key, features[feat] ? 'true' : 'false');
   }
-  return getCollabFeatures();
+  const after = getCollabFeatures();
+  // Collab flags gate MCP tool/resource registration, so callers must know
+  // whether anything actually flipped — a no-op save must not tear down every
+  // live MCP session (#1414).
+  const changed = (Object.keys(after) as Array<keyof typeof after>).some(k => after[k] !== before[k]);
+  return { features: after, changed };
 }
 
 // ── Packing Templates ──────────────────────────────────────────────────────
@@ -670,7 +699,13 @@ export function listAddons() {
   }
 
   return [
-    ...addons.map(a => ({ ...a, enabled: !!a.enabled, config: JSON.parse(a.config || '{}') })),
+    ...addons.map(a => ({
+      ...a,
+      enabled: !!a.enabled,
+      config: a.id === ADDON_IDS.LLM_PARSING
+        ? maskLlmAddonConfig(JSON.parse(a.config || '{}'))
+        : JSON.parse(a.config || '{}'),
+    })),
     ...providers.map(p => ({
       id: p.id,
       name: p.name,
@@ -702,7 +737,14 @@ export function updateAddon(id: string, data: { enabled?: boolean; config?: Reco
 
   if (addon) {
     if (data.enabled !== undefined) db.prepare('UPDATE addons SET enabled = ? WHERE id = ?').run(data.enabled ? 1 : 0, id);
-    if (data.config !== undefined) db.prepare('UPDATE addons SET config = ? WHERE id = ?').run(JSON.stringify(data.config), id);
+    if (data.config !== undefined) {
+      // The AI-parsing addon holds an API key — encrypt it at rest and preserve
+      // the stored key when the client echoes the mask sentinel (see llmConfig.ts).
+      const configToStore = id === ADDON_IDS.LLM_PARSING
+        ? prepareLlmAddonConfigForWrite(data.config, JSON.parse(addon.config || '{}'))
+        : data.config;
+      db.prepare('UPDATE addons SET config = ? WHERE id = ?').run(JSON.stringify(configToStore), id);
+    }
   } else {
     if (data.enabled !== undefined) db.prepare('UPDATE photo_providers SET enabled = ? WHERE id = ?').run(data.enabled ? 1 : 0, id);
   }
@@ -710,7 +752,13 @@ export function updateAddon(id: string, data: { enabled?: boolean; config?: Reco
   const updatedAddon = db.prepare('SELECT * FROM addons WHERE id = ?').get(id) as Addon | undefined;
   const updatedProvider = db.prepare('SELECT * FROM photo_providers WHERE id = ?').get(id) as { id: string; name: string; description?: string | null; icon: string; enabled: number; sort_order: number } | undefined;
   const updated = updatedAddon
-    ? { ...updatedAddon, enabled: !!updatedAddon.enabled, config: JSON.parse(updatedAddon.config || '{}') }
+    ? {
+      ...updatedAddon,
+      enabled: !!updatedAddon.enabled,
+      config: updatedAddon.id === ADDON_IDS.LLM_PARSING
+        ? maskLlmAddonConfig(JSON.parse(updatedAddon.config || '{}'))
+        : JSON.parse(updatedAddon.config || '{}'),
+    }
     : updatedProvider
       ? {
         id: updatedProvider.id,
@@ -724,8 +772,19 @@ export function updateAddon(id: string, data: { enabled?: boolean; config?: Reco
       }
       : null;
 
+  // Only these addons gate MCP tool/resource/prompt registration (see
+  // registerTools/registerResources) — and only a real enabled-flip changes
+  // what a session would register. Config-only saves, photo providers and
+  // MCP-irrelevant addons must not tear down every live session (#1414).
+  const MCP_RELEVANT_ADDONS = new Set<string>([
+    ADDON_IDS.MCP, ADDON_IDS.PACKING, ADDON_IDS.BUDGET, ADDON_IDS.COLLAB,
+    ADDON_IDS.ATLAS, ADDON_IDS.VACAY, ADDON_IDS.JOURNEY,
+  ]);
+  const enabledChanged = !!addon && data.enabled !== undefined && (data.enabled ? 1 : 0) !== addon.enabled;
+
   return {
     addon: updated,
+    mcpAffected: enabledChanged && MCP_RELEVANT_ADDONS.has(id),
     auditDetails: { enabled: data.enabled !== undefined ? !!data.enabled : undefined, config_changed: data.config !== undefined },
   };
 }

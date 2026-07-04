@@ -6,9 +6,20 @@ Log flights, trains, car rentals, and cruises with departure and arrival endpoin
 
 Open the **Transports** tab in the trip planner and click **Add**, or open the planner from a day view and use the transport shortcut. Transport records appear in the [Reservations](Reservations-and-Bookings) panel alongside other bookings.
 
+## Public transit search
+
+The **Add transport** dialog has two modes: **Manual transport** (the classic form) and **Automated transport** — a public-transit route search powered by [Transitous](https://transitous.org/), free open data with no API key or paid provider. The **transit button** (tram icon) on each day header opens the dialog straight in the Automated mode. (The rename pencil this button replaced moved next to the day name in the day detail panel.)
+
+- Pick **from** and **to** (stop/station search; the day's own places and hotels appear as quick picks), a **depart/arrive** time, and filter by mode: train, subway, tram, bus, ferry, cable car.
+- Rank the results by **best route**, **fewer transfers**, or **less walking**.
+- Each result shows local departure/arrival times, duration, transfers, walking time and the line badges in their official colors; expand it for the stop-by-stop breakdown.
+- **Add to day** saves the chosen connection as a first-class **transit** entry. It slots into the day timeline at its departure time and shows its line badges, transfers and walking time right in the plan. Clicking it opens the **journey view**: the full stop-by-stop itinerary together with the editable booking fields (title, status, confirmation code, notes), a **Change route** action that re-runs the search and replaces the itinerary, and delete. In the Transports tab these journeys appear in their own **Automated public transit** section.
+
+Self-hosters can point the `TRANSIT_API_URL` environment variable at their own MOTIS instance.
+
 ## Transport types
 
-Four types are available: **Flight**, **Train**, **Car**, **Cruise**.
+Nine types are available: **Flight**, **Train**, **Bus**, **Car**, **Taxi**, **Bicycle**, **Cruise**, **Ferry**, and **Other**.
 
 ## Common fields
 
@@ -48,20 +59,23 @@ When the type is set to Flight, two additional fields appear:
 - **Airline** — carrier name (e.g. Lufthansa)
 - **Flight number** — (e.g. LH 123)
 
-## Train-specific fields
+## Train-specific fields (multi-leg route)
 
-When the type is set to Train, three additional fields appear:
+A long-distance rail trip is often several trains on one ticket, so trains use a **multi-leg route editor** (the same one flights use), not a single flat field block. You build an ordered chain of stations:
 
-- **Train number** — (e.g. ICE 123)
-- **Platform** — platform or track number
-- **Seat** — seat or coach assignment
+- Search each **station** with the location picker; use **Add stop** to insert intermediate stations between the start and end.
+- Each **leg** (the segment between two consecutive stations) has its own **train number**, **platform**, **seat**, and its own departure/arrival **day and time**.
+- *N* stations make *N − 1* legs. A simple two-station train is just one leg — enter its train number/platform/seat there.
+
+Trains created before this feature keep working: their existing train number/platform/seat are read as a single leg.
 
 ## On the map
 
 Transport records with both endpoints set appear as lines on the trip map:
 
 - **Flights** and **cruises** render as geodesic great-circle curves that follow the curvature of the Earth.
-- **Trains** and **cars** render as straight polylines between the two endpoints.
+- **Cars**, **buses**, **taxis** and **bicycles** follow **real roads**, routed on demand via a public OSRM router (driving for car/bus/taxi, cycling for bicycle). A straight line shows while the route loads, and is kept if routing fails or the trip is over ~2000 km.
+- **Trains** render as a straight polyline; a **multi-leg train** draws its full station chain (from → stop → to).
 
 Confirmed bookings are drawn as solid lines; pending bookings use a dashed line. Endpoint markers are shown at each location. For flights, a midpoint label appears along the arc showing the route codes (e.g. ZRH → JFK) and flight duration and distance when enough screen space is available.
 
@@ -76,6 +90,8 @@ When a transport is assigned to a day, it appears inline in the day timeline bet
 | Flight | Departure | In transit | Arrival |
 | Car rental | Pickup | Active | Return |
 | Train / Cruise | Start | Ongoing | End |
+
+A **multi-leg train** (and a multi-leg flight) instead shows **one row per leg**, each slotting into its own day at its own time and independently reorderable, rather than a single spanning row.
 
 See [Day-Plans-and-Notes](Day-Plans-and-Notes) for details.
 

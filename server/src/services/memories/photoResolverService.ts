@@ -18,6 +18,7 @@ export function getOrCreateTrekPhoto(
   assetId: string,
   ownerId: number,
   passphrase?: string,
+  mediaType: string = 'image',
 ): number {
   const existing = db.prepare(
     'SELECT id FROM trek_photos WHERE provider = ? AND asset_id = ? AND owner_id = ?'
@@ -31,8 +32,8 @@ export function getOrCreateTrekPhoto(
   }
 
   const res = db.prepare(
-    'INSERT INTO trek_photos (provider, asset_id, owner_id, passphrase) VALUES (?, ?, ?, ?)'
-  ).run(provider, assetId, ownerId, passphrase ? encrypt_api_key(passphrase) : null);
+    'INSERT INTO trek_photos (provider, asset_id, owner_id, passphrase, media_type) VALUES (?, ?, ?, ?, ?)'
+  ).run(provider, assetId, ownerId, passphrase ? encrypt_api_key(passphrase) : null, mediaType);
   return Number(res.lastInsertRowid);
 }
 
@@ -41,6 +42,8 @@ export function getOrCreateLocalTrekPhoto(
   thumbnailPath?: string | null,
   width?: number | null,
   height?: number | null,
+  mediaType: string = 'image',
+  durationMs?: number | null,
 ): number {
   const existing = db.prepare(
     "SELECT id FROM trek_photos WHERE provider = 'local' AND file_path = ?"
@@ -48,8 +51,8 @@ export function getOrCreateLocalTrekPhoto(
   if (existing) return existing.id;
 
   const res = db.prepare(
-    'INSERT INTO trek_photos (provider, file_path, thumbnail_path, width, height) VALUES (?, ?, ?, ?, ?)'
-  ).run('local', filePath, thumbnailPath || null, width || null, height || null);
+    'INSERT INTO trek_photos (provider, file_path, thumbnail_path, width, height, media_type, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run('local', filePath, thumbnailPath || null, width || null, height || null, mediaType, durationMs ?? null);
   return Number(res.lastInsertRowid);
 }
 
@@ -94,6 +97,7 @@ export async function streamPhoto(
   userId: number,
   photoId: number,
   kind: 'thumbnail' | 'original',
+  range?: string,
 ): Promise<void> {
   const photo = resolveTrekPhoto(photoId);
   if (!photo) {
@@ -105,8 +109,11 @@ export async function streamPhoto(
     const uploadsRoot = path.join(__dirname, '../../../uploads');
 
     if (kind === 'thumbnail') {
+      const isVideo = photo.media_type === 'video';
       let thumbRel = photo.thumbnail_path ?? null;
-      if (!thumbRel) {
+      // Only raster images get a lazily-generated Jimp thumbnail; Jimp can't decode
+      // video, so a video relies on the poster captured at upload (#823).
+      if (!thumbRel && !isVideo) {
         const result = await ensureLocalThumbnail(uploadsRoot, photo.file_path);
         if (result) {
           thumbRel = result.thumbnailRelPath;
@@ -119,16 +126,24 @@ export async function streamPhoto(
         const thumbAbs = path.join(uploadsRoot, thumbRel);
         if (fs.existsSync(thumbAbs)) {
           res.set('Cache-Control', 'public, max-age=86400, immutable');
+          res.set('X-Content-Type-Options', 'nosniff');
           res.sendFile(thumbAbs);
           return;
         }
       }
-      // Fall through to original if thumbnail unavailable.
+      // A poster-less video must NOT fall through to streaming the whole file as a
+      // "thumbnail"; let the client render its own placeholder instead.
+      if (isVideo) {
+        res.status(404).json({ error: 'No poster available' });
+        return;
+      }
+      // Images fall through to original if the thumbnail is unavailable.
     }
 
     const localPath = path.join(uploadsRoot, photo.file_path);
     if (fs.existsSync(localPath)) {
       res.set('Cache-Control', 'public, max-age=86400');
+      res.set('X-Content-Type-Options', 'nosniff');
       res.sendFile(localPath);
       return;
     }
@@ -144,11 +159,11 @@ export async function streamPhoto(
         await streamCachedThumbnail(
           res, photo,
           () => fetchImmichThumbnailBytes(userId, photo.asset_id!, photo.owner_id!),
-          () => streamImmichAsset(res, userId, photo.asset_id!, kind, photo.owner_id!),
+          () => streamImmichAsset(res, userId, photo.asset_id!, kind, photo.owner_id!, { mediaType: photo.media_type }),
         );
         return;
       }
-      await streamImmichAsset(res, userId, photo.asset_id!, kind, photo.owner_id!);
+      await streamImmichAsset(res, userId, photo.asset_id!, kind, photo.owner_id!, { mediaType: photo.media_type, range });
       return;
     }
     case 'synologyphotos': {

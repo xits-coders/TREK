@@ -49,14 +49,24 @@ function loadEndpoints(reservationId: number): ReservationEndpoint[] {
 function resolveDayIdFromTime(
   tripId: string | number,
   time: string | null | undefined,
+  clampToNearest = true,
 ): number | null {
   if (!time) return null;
   const datePart = time.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
-  const row = db
+  const exact = db
     .prepare('SELECT id FROM days WHERE trip_id = ? AND date = ? LIMIT 1')
     .get(tripId, datePart) as { id: number } | undefined;
-  return row?.id ?? null;
+  if (exact) return exact.id;
+  // Fallback: clamp to the nearest day in the trip so an imported booking whose
+  // exact date has no day row (or sits just outside the span) still lands on a day.
+  // Skipped by callers (e.g. resyncReservationDays) that must leave a booking whose
+  // date now falls outside the range untouched instead of snapping it to an edge day.
+  if (!clampToNearest) return null;
+  const nearest = db
+    .prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY ABS(JULIANDAY(date) - JULIANDAY(?)) ASC, date ASC LIMIT 1')
+    .get(tripId, datePart) as { id: number } | undefined;
+  return nearest?.id ?? null;
 }
 
 // After a trip's date range changes, generateDays positionally re-dates the day rows
@@ -76,10 +86,10 @@ export function resyncReservationDays(tripId: string | number): void {
   }[];
   const update = db.prepare('UPDATE reservations SET day_id = ?, end_day_id = ? WHERE id = ?');
   for (const r of rows) {
-    const newDayId = resolveDayIdFromTime(tripId, r.reservation_time);
+    const newDayId = resolveDayIdFromTime(tripId, r.reservation_time, false);
     if (newDayId == null) continue;
     const newEndDayId = r.reservation_end_time
-      ? (resolveDayIdFromTime(tripId, r.reservation_end_time) ?? r.end_day_id)
+      ? (resolveDayIdFromTime(tripId, r.reservation_end_time, false) ?? r.end_day_id)
       : r.end_day_id;
     if (newDayId !== r.day_id || newEndDayId !== r.end_day_id) {
       update.run(newDayId, newEndDayId, r.id);
@@ -99,9 +109,15 @@ function saveEndpoints(reservationId: number, endpoints: EndpointInput[]): void 
       INSERT INTO reservation_endpoints (reservation_id, role, sequence, name, code, lat, lng, timezone, local_time, local_date)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    eps.forEach((e, i) => {
-      insert.run(rid, e.role, e.sequence ?? i, e.name, e.code ?? null, e.lat, e.lng, e.timezone ?? null, e.local_time ?? null, e.local_date ?? null);
-    });
+    // lat/lng are NOT NULL: an imported transport whose pick-up/return (or station/
+    // stop) couldn't be geocoded reaches here with null coords. Skip those rows rather
+    // than let the INSERT throw and fail the entire booking save — the dates still live
+    // on reservation_time/reservation_end_time, so the booking lands on its day either way.
+    eps
+      .filter((e) => e.lat != null && e.lng != null)
+      .forEach((e, i) => {
+        insert.run(rid, e.role, e.sequence ?? i, e.name, e.code ?? null, e.lat, e.lng, e.timezone ?? null, e.local_time ?? null, e.local_date ?? null);
+      });
   });
   tx(reservationId, endpoints);
 }
@@ -216,6 +232,7 @@ interface CreateReservationData {
   location?: string;
   confirmation_number?: string;
   notes?: string;
+  url?: string;
   day_id?: number;
   end_day_id?: number;
   place_id?: number;
@@ -232,7 +249,7 @@ interface CreateReservationData {
 export function createReservation(tripId: string | number, data: CreateReservationData): { reservation: any; accommodationCreated: boolean } {
   const {
     title, reservation_time, reservation_end_time, location,
-    confirmation_number, notes, day_id, end_day_id, place_id, assignment_id,
+    confirmation_number, notes, url, day_id, end_day_id, place_id, assignment_id,
     status, type, accommodation_id, metadata, create_accommodation,
     endpoints, needs_review
   } = data;
@@ -266,8 +283,8 @@ export function createReservation(tripId: string | number, data: CreateReservati
   }
 
   const result = db.prepare(`
-    INSERT INTO reservations (trip_id, day_id, end_day_id, place_id, assignment_id, title, reservation_time, reservation_end_time, location, confirmation_number, notes, status, type, accommodation_id, metadata, needs_review)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO reservations (trip_id, day_id, end_day_id, place_id, assignment_id, title, reservation_time, reservation_end_time, location, confirmation_number, notes, url, status, type, accommodation_id, metadata, needs_review)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     tripId,
     resolvedDayId,
@@ -280,6 +297,7 @@ export function createReservation(tripId: string | number, data: CreateReservati
     location || null,
     confirmation_number || null,
     notes || null,
+    url || null,
     status || 'pending',
     resolvedType,
     resolvedAccommodationId,
@@ -341,6 +359,7 @@ interface UpdateReservationData {
   location?: string;
   confirmation_number?: string;
   notes?: string;
+  url?: string;
   day_id?: number;
   end_day_id?: number | null;
   place_id?: number;
@@ -357,7 +376,7 @@ interface UpdateReservationData {
 export function updateReservation(id: string | number, tripId: string | number, data: UpdateReservationData, current: Reservation): { reservation: any; accommodationChanged: boolean } {
   const {
     title, reservation_time, reservation_end_time, location,
-    confirmation_number, notes, day_id, end_day_id, place_id, assignment_id,
+    confirmation_number, notes, url, day_id, end_day_id, place_id, assignment_id,
     status, type, accommodation_id, metadata, create_accommodation,
     endpoints, needs_review
   } = data;
@@ -430,6 +449,7 @@ export function updateReservation(id: string | number, tripId: string | number, 
       location = ?,
       confirmation_number = ?,
       notes = ?,
+      url = ?,
       day_id = ?,
       end_day_id = ?,
       place_id = ?,
@@ -447,6 +467,7 @@ export function updateReservation(id: string | number, tripId: string | number, 
     location !== undefined ? (location || null) : current.location,
     confirmation_number !== undefined ? (confirmation_number || null) : current.confirmation_number,
     notes !== undefined ? (notes || null) : current.notes,
+    url !== undefined ? (url || null) : (current as any).url,
     nextDayId,
     nextEndDayId,
     place_id !== undefined ? (place_id || null) : current.place_id,

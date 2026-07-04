@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Hanya total — belum diselesaikan',
   'costs.tapToInclude': 'Ketuk untuk menyertakan',
   'costs.amount': 'Jumlah',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Semua kategori',
+  'costs.filter.allDays': 'Semua hari',
+  'costs.expensesCount': '{count} pengeluaran',
 };
-
 export default budget;

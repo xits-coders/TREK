@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Impossibile aggiungere',
   'members.removed': 'Membro rimosso',
   'members.removeError': 'Impossibile rimuovere',
+  'members.makeOwner': 'Rendi proprietario',
+  'members.confirmTransfer': 'Trasferire la proprietà a {name}? Diventerai un membro normale.',
+  'members.transferError': 'Trasferimento della proprietà non riuscito',
+  'members.guests': 'Ospiti',
+  'members.guest': 'Ospite',
+  'members.guestsHint': 'Persone senza account. Possono essere assegnate a spese, bagagli e attività, ma non possono accedere.',
+  'members.addGuest': 'Aggiungi ospite',
+  'members.guestNamePlaceholder': 'Nome ospite',
+  'members.guestAdded': 'Ospite aggiunto',
+  'members.guestAddError': 'Impossibile aggiungere l\'ospite',
+  'members.guestRenameError': 'Impossibile rinominare l\'ospite',
+  'members.guestRemoved': 'Ospite rimosso',
+  'members.confirmRemoveGuest': 'Rimuovere questo ospite? Verranno rimosse anche le sue assegnazioni e quote di spesa.',
 };
 export default members;

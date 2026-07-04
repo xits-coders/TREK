@@ -25,6 +25,7 @@ import type {
   Accommodation,
   Tag,
   Category,
+  AppearanceConfig,
 } from '@trek/shared'
 
 export type {
@@ -47,6 +48,7 @@ export type {
   Accommodation,
   Tag,
   Category,
+  AppearanceConfig,
 }
 
 export interface User {
@@ -128,6 +130,15 @@ export interface Settings {
   dashboard_fx_from?: string
   dashboard_fx_to?: string
   dashboard_timezones?: string[]
+  // AI booking-import fallback (per-user config; used when the admin has not set
+  // instance-wide config on the llm_parsing addon). llm_api_key is masked on read.
+  llm_provider?: 'local' | 'openai' | 'anthropic'
+  llm_model?: string
+  llm_base_url?: string
+  llm_multimodal?: boolean
+  llm_api_key?: string
+  /** Per-user appearance/customization config (theming, transparency, typography, dashboard widgets). */
+  appearance?: AppearanceConfig
 }
 
 export interface AssignmentsMap {

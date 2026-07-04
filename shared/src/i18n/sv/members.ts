@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Kunde inte lägga till',
   'members.removed': 'Medlem borttagen',
   'members.removeError': 'Kunde inte ta bort',
+  'members.makeOwner': 'Gör till ägare',
+  'members.confirmTransfer': 'Överför ägarskapet till {name}? Du blir en vanlig medlem.',
+  'members.transferError': 'Det gick inte att överföra ägarskapet',
+  'members.guests': 'Gäster',
+  'members.guest': 'Gäst',
+  'members.guestsHint': 'Personer utan konto. De kan tilldelas kostnader, packning och uppgifter, men kan inte logga in.',
+  'members.addGuest': 'Lägg till gäst',
+  'members.guestNamePlaceholder': 'Gästens namn',
+  'members.guestAdded': 'Gäst tillagd',
+  'members.guestAddError': 'Det gick inte att lägga till gästen',
+  'members.guestRenameError': 'Det gick inte att byta namn på gästen',
+  'members.guestRemoved': 'Gäst borttagen',
+  'members.confirmRemoveGuest': 'Ta bort den här gästen? Deras tilldelningar och kostnadsandelar tas också bort.',
 };
 export default members;

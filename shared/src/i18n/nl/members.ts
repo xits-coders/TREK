@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Toevoegen mislukt',
   'members.removed': 'Lid verwijderd',
   'members.removeError': 'Verwijderen mislukt',
+  'members.makeOwner': 'Eigenaar maken',
+  'members.confirmTransfer': 'Eigenaarschap overdragen aan {name}? Je wordt een gewoon lid.',
+  'members.transferError': 'Overdracht van eigenaarschap mislukt',
+  'members.guests': 'Gasten',
+  'members.guest': 'Gast',
+  'members.guestsHint': 'Mensen zonder account. Ze kunnen worden toegewezen aan kosten, bagage en taken, maar kunnen niet inloggen.',
+  'members.addGuest': 'Gast toevoegen',
+  'members.guestNamePlaceholder': 'Naam van gast',
+  'members.guestAdded': 'Gast toegevoegd',
+  'members.guestAddError': 'Kan gast niet toevoegen',
+  'members.guestRenameError': 'Kan gast niet hernoemen',
+  'members.guestRemoved': 'Gast verwijderd',
+  'members.confirmRemoveGuest': 'Deze gast verwijderen? Hun toewijzingen en kostenaandelen worden ook verwijderd.',
 };
 export default members;

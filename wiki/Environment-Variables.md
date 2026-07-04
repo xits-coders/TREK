@@ -27,7 +27,7 @@ Complete reference for all environment variables TREK reads.
 | `SESSION_DURATION_REMEMBER` | Session length used when the user **ticks "Remember me"** on login: a longer-lived JWT `exp` claim plus a **persistent** `trek_session` cookie whose `maxAge` matches, so the session survives browser restarts. Same `ms`-style format and startup-fallback behaviour as `SESSION_DURATION`.                                                                                                                                                                                                                                     | `30d`                           |
 | `ALLOWED_ORIGINS`           | Comma-separated origins for CORS and email notification links                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | same-origin                     |
 | `ALLOW_INTERNAL_NETWORK`    | Allow outbound requests to private/RFC-1918 IPs. Set `true` if Immich or other integrated services are on your local network. Loopback (`127.x`) and link-local (`169.254.x`) addresses remain blocked regardless.                                                                                                                                                                                                                                                                                                                | `false`                         |
-| `APP_URL`                   | Public base URL (e.g. `https://trek.example.com`). Required when OIDC is enabled — must match the redirect URI registered with your IdP. Also used as the base URL for email notification links.                                                                                                                                                                                                                                                                                                                                  | —                               |
+| `APP_URL`                   | Public base URL (e.g. `https://trek.example.com`). Required when OIDC is enabled — must match the redirect URI registered with your IdP. Also used as the base URL for email notification links and subscribable calendar feed URLs (the `webcal://`/`https://` links the Subscribe dialog hands to Google/Apple/Outlook).                                                                                                                                                                                                          | —                               |
 
 ### `HOST` — Source and Proxmox installs only
 
@@ -64,7 +64,7 @@ Setting `ENCRYPTION_KEY` explicitly is recommended so you can back it up indepen
 
 ### `DEFAULT_LANGUAGE` — Supported Codes
 
-You can set `DEFAULT_LANGUAGE` to any of the 20 languages TREK ships. The currently supported codes are:
+You can set `DEFAULT_LANGUAGE` to any of the 22 languages TREK ships. The currently supported codes are:
 
 | Code    | Language           |
 |---------|--------------------|
@@ -88,6 +88,8 @@ You can set `DEFAULT_LANGUAGE` to any of the 20 languages TREK ships. The curren
 | `ko`    | 한국어                |
 | `uk`    | Українська         |
 | `gr`    | Ελληνικά           |
+| `sv`    | Svenska            |
+| `vi`    | Tiếng Việt         |
 
 If you set a code that isn't supported, TREK falls back to English (`en`). This list grows as new
 translations are added to TREK.
@@ -179,10 +181,24 @@ randomly generated password that is printed to the server log. Once any user exi
 
 For setup instructions, see [MCP-Overview](MCP-Overview).
 
-| Variable                   | Description                              | Default |
-|----------------------------|------------------------------------------|---------|
-| `MCP_RATE_LIMIT`           | Max MCP API requests per user per minute | `300`   |
-| `MCP_MAX_SESSION_PER_USER` | Max concurrent MCP sessions per user     | `20`    |
+| Variable                   | Description                                                                                             | Default |
+|----------------------------|---------------------------------------------------------------------------------------------------------|---------|
+| `MCP_RATE_LIMIT`           | Max MCP API requests per user per minute                                                                 | `300`   |
+| `MCP_MAX_SESSION_PER_USER` | Max concurrent MCP sessions per user                                                                     | `20`    |
+| `MCP_SESSION_TTL`          | Session idle timeout in seconds (max 86400)                                                              | `3600`  |
+| `MCP_SSE_KEEPALIVE`        | SSE keep-alive ping interval in seconds — keeps the stream alive through reverse proxies. `0` disables the pings; an open stream still refreshes the session's idle timeout. | `25`    |
+
+---
+
+## API Docs
+
+| Variable                | Description                                                                                                                                             | Default |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| `TREK_API_DOCS_ENABLED` | Serve interactive OpenAPI/Swagger docs at `/api/docs` (raw spec at `/api/docs-json`). The spec enumerates every route including the admin surface, so it is off by default. | `false` |
+
+With the flag on, `/api/docs` lists every REST endpoint with try-it-out; authorize with a session JWT
+via the Bearer button (the API accepts `Authorization: Bearer <jwt>` everywhere as the cookie fallback).
+Request bodies validated with Zod are documented automatically from the same schemas.
 
 ---
 
@@ -197,6 +213,20 @@ The official TREK Docker image bundles the binary automatically: on amd64 it dow
 running TREK from source, install `libkitinerary-bin` (Debian trixie / Ubuntu 25.04+) or download the static binary
 directly and place it anywhere on `PATH`. The `GET /api/health/features` endpoint returns `{ "bookingImport": true }`
 when the binary is found, and the Import button in the Reservations panel is hidden when it is not.
+
+Booking import can also fall back to an AI model for documents KDE Itinerary can't read. That feature (the **AI Parsing** addon) is configured entirely in the UI and needs no environment variables — see [AI-Booking-Import](AI-Booking-Import).
+
+---
+
+## Public Transit (Transitous)
+
+Public-transit routing in the planner is powered by [Transitous](https://transitous.org/), a free community MOTIS service — no API key is required. See [Transport: Flights, Trains, Cars](Transport-Flights-Trains-Cars) for the feature itself.
+
+| Variable          | Description                                                                                                                                                                                                                             | Default                     |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|
+| `TRANSIT_API_URL` | Base URL of the transit routing API. TREK's server proxies requests to it. Point this at your own self-hosted [MOTIS](https://github.com/motis-project/motis) instance if you want zero third-party egress. A trailing slash is stripped. | `https://api.transitous.org` |
+
+When left at the default, using the transit feature makes the TREK **server** send outbound HTTPS requests to `api.transitous.org` (with an identifying User-Agent, as the Transitous usage policy asks). No transit request is made until a user actually searches for a journey.
 
 ---
 
@@ -232,6 +262,24 @@ Demo mode runs TREK as a public, self-resetting sandbox. Not intended for regula
 
 The `DEMO_ADMIN_*` variables only take effect when `DEMO_MODE=true`, and only at the moment the demo data is first
 seeded.
+
+---
+
+## Plugins
+
+The plugin system is **on by default**. The runtime and the Admin → Plugins panel are available out of the box, but installed plugins still have to be activated one by one — so no third-party code runs until an admin turns a specific plugin on. Set `TREK_PLUGINS_ENABLED=false` to switch the whole system off. See [Plugins](Plugins) for the full system and [Plugin-Permissions](Plugin-Permissions) for the isolation model.
+
+| Variable                          | Description                                                                                                                                                                                                           | Default                                                                             |
+|-----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
+| `TREK_PLUGINS_ENABLED`            | Master switch for the plugin system. Enabled unless set to `false` (also accepts `0`, `off`, `no`, case-insensitive). Turning it off is a kill switch — installed plugins stay on disk but nothing runs.               | enabled                                                                             |
+| `TREK_PLUGINS_DIR`                | Directory where installed plugin **code** is stored. Persist it as a volume if you use plugins.                                                                                                                       | `<data>/plugins`                                                                    |
+| `TREK_PLUGINS_DATA_DIR`           | Directory for each plugin's own **data** (its private SQLite file). Kept separate from the code tree; persist it as a volume too.                                                                                     | `<data>/plugins-data`                                                               |
+| `TREK_PLUGIN_REGISTRY_URL`        | Override the plugin registry index the *Discover* tab browses. Point it at your own fork or mirror of the registry.                                                                                                  | `https://raw.githubusercontent.com/mauriceboe/TREK-Plugins/main/dist/index.json` |
+| `TREK_PLUGIN_MAX_RSS_MB`          | Per-plugin memory ceiling in MB. A plugin process that exceeds it is stopped.                                                                                                                                         | `300`                                                                               |
+| `TREK_PLUGIN_PERMISSIONS`         | Set to `off` to opt **out** of the Node.js OS-level permission sandbox for plugin child processes (not recommended). Any other value keeps the sandbox on.                                                            | `on`                                                                                |
+| `TREK_PLUGIN_ALLOW_PRIVATE_EGRESS`| Set to `on` to let a plugin's declared outbound hosts resolve to private/internal addresses (e.g. a service on your LAN). By default connections to private, loopback, link-local and metadata addresses are refused. | off (private egress blocked)                                                        |
+
+All of these are optional — the defaults are safe. Set `TREK_PLUGINS_ENABLED=false` if you want to switch the plugin system off entirely.
 
 ---
 

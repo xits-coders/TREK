@@ -54,6 +54,7 @@ export const reservationSchema = z.object({
   location: z.string().nullable().optional(),
   confirmation_number: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
   status: z.string(),
   type: z.string(),
   accommodation_id: z.union([z.number(), z.string()]).nullable().optional(),
@@ -143,8 +144,10 @@ const bookingImportEndpointSchema = z.object({
   sequence: z.number(),
   name: z.string(),
   code: z.string().nullable(),
-  lat: z.number(),
-  lng: z.number(),
+  // Nullable: the mapper emits named endpoints without coords; confirm() geocodes
+  // them, and only the coord'd ones are persisted.
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
   timezone: z.string().nullable(),
   local_time: z.string().nullable(),
   local_date: z.string().nullable(),
@@ -181,9 +184,28 @@ export const bookingImportPreviewItemSchema = z.object({
 });
 export type BookingImportPreviewItem = z.infer<typeof bookingImportPreviewItemSchema>;
 
+/**
+ * How the preview endpoint should treat the LLM fallback:
+ *  - `no-ai`             — kitinerary only (default; existing behaviour)
+ *  - `fallback-on-empty` — run the LLM for files kitinerary returns nothing for
+ *  - `force-ai`          — run the LLM on every submitted file (skip kitinerary)
+ */
+export const bookingImportModeSchema = z.enum(['no-ai', 'fallback-on-empty', 'force-ai']);
+export type BookingImportMode = z.infer<typeof bookingImportModeSchema>;
+
+/** Per-file AI report so the preview UI can offer "Try AI parsing" only where it applies. */
+export const bookingImportFileReportSchema = z.object({
+  fileName: z.string(),
+  aiAvailable: z.boolean(),
+  aiUsed: z.boolean(),
+});
+export type BookingImportFileReport = z.infer<typeof bookingImportFileReportSchema>;
+
 export const bookingImportPreviewResponseSchema = z.object({
   items: z.array(bookingImportPreviewItemSchema),
   warnings: z.array(z.string()),
+  // Optional so existing/no-AI responses stay byte-compatible.
+  files: z.array(bookingImportFileReportSchema).optional(),
 });
 export type BookingImportPreviewResponse = z.infer<typeof bookingImportPreviewResponseSchema>;
 

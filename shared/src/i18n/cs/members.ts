@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Nepodařilo se přidat',
   'members.removed': 'Člen odebrán',
   'members.removeError': 'Nepodařilo se odebrat',
+  'members.makeOwner': 'Nastavit jako vlastníka',
+  'members.confirmTransfer': 'Převést vlastnictví na {name}? Stanete se běžným členem.',
+  'members.transferError': 'Převod vlastnictví se nezdařil',
+  'members.guests': 'Hosté',
+  'members.guest': 'Host',
+  'members.guestsHint': 'Lidé bez účtu. Lze jim přiřadit náklady, balení a úkoly, ale nemohou se přihlásit.',
+  'members.addGuest': 'Přidat hosta',
+  'members.guestNamePlaceholder': 'Jméno hosta',
+  'members.guestAdded': 'Host přidán',
+  'members.guestAddError': 'Nepodařilo se přidat hosta',
+  'members.guestRenameError': 'Nepodařilo se přejmenovat hosta',
+  'members.guestRemoved': 'Host odebrán',
+  'members.confirmRemoveGuest': 'Odebrat tohoto hosta? Jeho přiřazení a podíly na nákladech budou také odebrány.',
 };
 export default members;

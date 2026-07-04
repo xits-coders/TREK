@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Только в сумме — ещё не урегулировано',
   'costs.tapToInclude': 'Нажмите, чтобы добавить',
   'costs.amount': 'Сумма',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Все категории',
+  'costs.filter.allDays': 'Все дни',
+  'costs.expensesCount': 'Расходов: {count}',
 };
-
 export default budget;

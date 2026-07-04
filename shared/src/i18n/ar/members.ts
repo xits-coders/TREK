@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'فشلت الإضافة',
   'members.removed': 'تمت إزالة العضو',
   'members.removeError': 'فشلت الإزالة',
+  'members.makeOwner': 'تعيين كمالك',
+  'members.confirmTransfer': 'نقل الملكية إلى {name}؟ ستصبح عضوًا عاديًا.',
+  'members.transferError': 'فشل نقل الملكية',
+  'members.guests': 'الضيوف',
+  'members.guest': 'ضيف',
+  'members.guestsHint': 'أشخاص بدون حساب. يمكن إسنادهم إلى التكاليف والأمتعة والمهام، لكن لا يمكنهم تسجيل الدخول.',
+  'members.addGuest': 'إضافة ضيف',
+  'members.guestNamePlaceholder': 'اسم الضيف',
+  'members.guestAdded': 'تمت إضافة الضيف',
+  'members.guestAddError': 'فشلت إضافة الضيف',
+  'members.guestRenameError': 'فشلت إعادة تسمية الضيف',
+  'members.guestRemoved': 'تمت إزالة الضيف',
+  'members.confirmRemoveGuest': 'إزالة هذا الضيف؟ سيتم أيضًا إزالة تعييناته وحصص التكاليف الخاصة به.',
 };
 export default members;

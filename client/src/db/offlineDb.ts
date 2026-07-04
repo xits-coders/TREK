@@ -8,7 +8,10 @@ export interface CachedTripMember extends TripMember {
 
 // ── Queue + sync types ────────────────────────────────────────────────────────
 
-export type MutationStatus = 'pending' | 'syncing' | 'failed';
+// 'conflict' is terminal-until-resolved: the server rejected the replay because
+// the entity changed underneath the offline edit (#1135 ask 3). It is surfaced
+// to the user for a keep-mine / keep-theirs decision rather than dropped.
+export type MutationStatus = 'pending' | 'syncing' | 'failed' | 'conflict';
 
 export interface QueuedMutation {
   /** UUID — also used as X-Idempotency-Key sent to the server */
@@ -33,6 +36,21 @@ export interface QueuedMutation {
    * mutation queue rewrites to the real server id once the dependent CREATE flushes.
    */
   tempEntityId?: number;
+  /**
+   * Optimistic-concurrency token: the entity's `updated_at` at the moment the
+   * offline edit was made. Sent as `X-Base-Updated-At` on replay so the server
+   * can reject the write (409) if someone else changed the entity in the
+   * meantime. Absent for creates and for resources without a token.
+   */
+  baseUpdatedAt?: string | null;
+  /**
+   * Set when the replay came back 409: the server's current version of the
+   * entity, kept so the conflict resolver can show "theirs" beside "mine"
+   * (which is reconstructed from `body`). Only present while status==='conflict'.
+   */
+  conflictServer?: unknown;
+  /** When the conflict was detected (for ordering / display). */
+  conflictAt?: number;
 }
 
 export interface SyncMeta {
@@ -58,6 +76,15 @@ export interface BlobCacheEntry {
   bytes: number;
   mime: string;
   cachedAt: number;
+}
+
+/** An uploaded booking-import source file, kept so the review flow can attach it to the
+ *  created bookings even after a page reload during the (background) parse. Keyed by job. */
+export interface ImportSourceFile {
+  jobId: string;
+  fileName: string;
+  blob: Blob;
+  createdAt: number;
 }
 
 // ── Dexie class ────────────────────────────────────────────────────────────────
@@ -105,6 +132,7 @@ class TrekOfflineDb extends Dexie {
   mutationQueue!: Table<QueuedMutation, string>;
   syncMeta!: Table<SyncMeta, number>;
   blobCache!: Table<BlobCacheEntry, string>;
+  importFiles!: Table<ImportSourceFile, [string, string]>;
 
   constructor(name: string = ANON_DB_NAME) {
     super(name);
@@ -139,6 +167,11 @@ class TrekOfflineDb extends Dexie {
         if (row.tripId == null) row.tripId = -1;
         if (row.bytes == null) row.bytes = row.blob?.size ?? 0;
       });
+    });
+
+    // v4: durable store for booking-import source files (survives a reload mid-parse).
+    this.version(4).stores({
+      importFiles: '[jobId+fileName], jobId, createdAt',
     });
   }
 }
@@ -264,6 +297,39 @@ export async function getCachedBlob(url: string): Promise<Blob | null> {
   }
 }
 
+// ── Booking-import source files ─────────────────────────────────────────────
+
+/** Abandoned import files (never reviewed) are pruned after this long. */
+const IMPORT_FILE_TTL_MS = 60 * 60_000;
+
+/**
+ * Persist the uploaded source files for a background import job so the per-item review can
+ * attach each document to its booking even if the page reloads during the parse. Best-effort.
+ */
+export async function saveImportFiles(jobId: string, files: File[]): Promise<void> {
+  try {
+    const now = Date.now();
+    await offlineDb.importFiles.bulkPut(files.map(f => ({ jobId, fileName: f.name, blob: f, createdAt: now })));
+    // Prune leftovers from imports that were never reviewed.
+    await offlineDb.importFiles.where('createdAt').below(now - IMPORT_FILE_TTL_MS).delete();
+  } catch { /* the in-memory copy still serves the no-reload path */ }
+}
+
+/** A job's stored source files, rebuilt as File objects (name + type preserved for upload). */
+export async function getImportFiles(jobId: string): Promise<File[]> {
+  try {
+    const rows = await offlineDb.importFiles.where('jobId').equals(jobId).toArray();
+    return rows.map(r => new File([r.blob], r.fileName, { type: r.blob.type || 'application/octet-stream' }));
+  } catch {
+    return [];
+  }
+}
+
+/** Drop a job's stored source files once they've been handed to the review flow. */
+export async function deleteImportFiles(jobId: string): Promise<void> {
+  try { await offlineDb.importFiles.where('jobId').equals(jobId).delete(); } catch { /* ignore */ }
+}
+
 // ── Blob-cache budget ───────────────────────────────────────────────────────
 
 /**
@@ -300,7 +366,16 @@ export async function enforceBlobBudget(
 
 // ── Eviction / cleanup ────────────────────────────────────────────────────────
 
-/** Delete all cached data for one trip (eviction or explicit clear). */
+/**
+ * Delete one trip's cached READ data (eviction, per-trip opt-out). The offline
+ * write queue is deliberately preserved except for already-dropped 'failed' rows:
+ * a trip can be evicted for being stale, or turned off in the storage settings,
+ * while it still holds unsynced offline edits (pending/syncing) or unresolved
+ * conflicts — those must survive so the user's work is not silently lost (#1135).
+ * The replay only needs the queued REST request, not the cached entities, and a
+ * successful flush re-adds the canonical row. The full "Clear cache" wipe goes
+ * through clearAll(), which intentionally drops everything.
+ */
 export async function clearTripData(tripId: number): Promise<void> {
   await offlineDb.transaction(
     'rw',
@@ -328,7 +403,8 @@ export async function clearTripData(tripId: number): Promise<void> {
       await offlineDb.tripFiles.where('trip_id').equals(tripId).delete();
       await offlineDb.accommodations.where('trip_id').equals(tripId).delete();
       await offlineDb.tripMembers.where('tripId').equals(tripId).delete();
-      await offlineDb.mutationQueue.where('tripId').equals(tripId).delete();
+      // Keep pending/syncing/conflict mutations — only purge dead 'failed' rows.
+      await offlineDb.mutationQueue.where('tripId').equals(tripId).and(m => m.status === 'failed').delete();
       await offlineDb.syncMeta.where('tripId').equals(tripId).delete();
       await offlineDb.blobCache.where('tripId').equals(tripId).delete();
     },

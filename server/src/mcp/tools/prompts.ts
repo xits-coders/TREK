@@ -77,7 +77,8 @@ ${days?.map((d: any, i: number) => `Day ${i + 1} (${d.date}): ${d.assignments?.l
       if (!canAccessTrip(tripId, userId)) {
         return { messages: [{ role: 'user', content: { type: 'text', text: 'Trip not found or access denied.' } }] };
       }
-      const items = listPackingItems(tripId);
+      // Hide other members' private items (#858) from the requesting user.
+      const items = listPackingItems(tripId, userId);
       if (!items.length) {
         return { messages: [{ role: 'user', content: { type: 'text', text: 'No packing items found for this trip.' } }] };
       }

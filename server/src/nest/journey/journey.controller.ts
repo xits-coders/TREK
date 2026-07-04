@@ -15,7 +15,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -25,7 +25,7 @@ import { JourneyService } from './journey.service';
 import { JourneyAddonGuard } from './journey-addon.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { getAllowedExtensions } from '../../services/fileService';
+import { getAllowedExtensions, isVideoMime, isVideoExtension, MAX_VIDEO_SIZE } from '../../services/fileService';
 
 const uploadsBase = path.join(__dirname, '../../../uploads/journey');
 const IMAGE_UPLOAD = {
@@ -47,6 +47,41 @@ const IMAGE_UPLOAD = {
       err.statusCode = 400;
       return cb(err, false);
     }
+    cb(null, true);
+  },
+};
+
+// Gallery video upload (#823): one video plus an optional client-captured poster
+// image, written to the same uploads/journey store. Larger cap than images since
+// phone clips are big; videos are stored as-is and streamed with HTTP Range.
+const VIDEO_UPLOAD = {
+  storage: diskStorage({
+    destination: (_req, _file, cb) => { if (!fs.existsSync(uploadsBase)) fs.mkdirSync(uploadsBase, { recursive: true }); cb(null, uploadsBase); },
+    filename: (_req, file, cb) => {
+      // The poster is ALWAYS stored as .jpg, never the client-supplied extension:
+      // otherwise a poster declared image/* but named x.html / x.js would land on
+      // disk with that extension and be served inline same-origin (stored XSS,
+      // reachable via the public share proxy). The video extension is validated by
+      // the fileFilter, so it is safe to keep.
+      const ext = file.fieldname === 'poster' ? '.jpg' : (path.extname(file.originalname).toLowerCase() || '.mp4');
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: MAX_VIDEO_SIZE },
+  fileFilter: (_req: unknown, file: Express.Multer.File, cb: (err: Error | null, accept: boolean) => void) => {
+    const reject = (msg: string) => {
+      const err: Error & { statusCode?: number } = new Error(msg);
+      err.statusCode = 400;
+      cb(err, false);
+    };
+    if (file.fieldname === 'poster') {
+      if (!file.mimetype.startsWith('image/') || file.mimetype.includes('svg')) return reject('Poster must be an image');
+      return cb(null, true);
+    }
+    // 'video' field
+    const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+    if (!isVideoMime(file.mimetype)) return reject('Only video files are allowed');
+    if (!isVideoExtension(ext)) return reject(`Video type .${ext} is not allowed`);
     cb(null, true);
   },
 };
@@ -145,20 +180,21 @@ export class JourneyController {
   }
 
   @Post('entries/:entryId/provider-photos')
-  providerPhotos(@CurrentUser() user: User, @Param('entryId') entryId: string, @Body() body: { provider?: string; asset_id?: string; asset_ids?: unknown[]; caption?: string; passphrase?: string }) {
+  providerPhotos(@CurrentUser() user: User, @Param('entryId') entryId: string, @Body() body: { provider?: string; asset_id?: string; asset_ids?: unknown[]; caption?: string; passphrase?: string; media_type?: string; media_types?: unknown[] }) {
     const pp = body.passphrase && typeof body.passphrase === 'string' ? body.passphrase : undefined;
     if (Array.isArray(body.asset_ids) && body.provider) {
       const added: unknown[] = [];
-      for (const id of body.asset_ids) {
-        const photo = this.journey.addProviderPhoto(Number(entryId), user.id, body.provider, String(id), body.caption, pp);
+      body.asset_ids.forEach((id, i) => {
+        const mt = Array.isArray(body.media_types) && body.media_types[i] === 'video' ? 'video' : 'image';
+        const photo = this.journey.addProviderPhoto(Number(entryId), user.id, body.provider!, String(id), body.caption, pp, mt);
         if (photo) added.push(photo);
-      }
+      });
       return { photos: added, added: added.length };
     }
     if (!body.provider || !body.asset_id) {
       throw new HttpException({ error: 'provider and asset_id required' }, 400);
     }
-    const photo = this.journey.addProviderPhoto(Number(entryId), user.id, body.provider, body.asset_id, body.caption, pp);
+    const photo = this.journey.addProviderPhoto(Number(entryId), user.id, body.provider, body.asset_id, body.caption, pp, body.media_type === 'video' ? 'video' : 'image');
     if (!photo) {
       throw new HttpException({ error: 'Not allowed or duplicate' }, 403);
     }
@@ -222,21 +258,57 @@ export class JourneyController {
     return { photos };
   }
 
+  @Post(':id/gallery/video')
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'video', maxCount: 1 }, { name: 'poster', maxCount: 1 }], VIDEO_UPLOAD))
+  uploadGalleryVideo(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @UploadedFiles() files: { video?: Express.Multer.File[]; poster?: Express.Multer.File[] } | undefined,
+    @Body() body: { duration_ms?: string },
+  ) {
+    const video = files?.video?.[0];
+    const poster = files?.poster?.[0];
+    // multer already wrote both parts; clean them up on any rejection so a POST to
+    // a journey the user can't edit doesn't orphan a 500 MB clip on disk (#823).
+    const cleanup = () => {
+      for (const f of [video, poster]) {
+        if (f?.path) { try { fs.unlinkSync(f.path); } catch { /* best-effort */ } }
+      }
+    };
+    if (!video) {
+      cleanup();
+      throw new HttpException({ error: 'No video uploaded' }, 400);
+    }
+    const durationMs = body?.duration_ms != null ? Number(body.duration_ms) : null;
+    const photos = this.journey.uploadGalleryPhotos(Number(id), user.id, [{
+      path: `journey/${video.filename}`,
+      thumbnail: poster ? `journey/${poster.filename}` : undefined,
+      mediaType: 'video',
+      durationMs: durationMs != null && Number.isFinite(durationMs) ? durationMs : null,
+    }]);
+    if (!photos.length) {
+      cleanup();
+      throw new HttpException({ error: 'Not allowed' }, 403);
+    }
+    return { photos };
+  }
+
   @Post(':id/gallery/provider-photos')
-  galleryProviderPhotos(@CurrentUser() user: User, @Param('id') id: string, @Body() body: { provider?: string; asset_id?: string; asset_ids?: unknown[]; passphrase?: string }) {
+  galleryProviderPhotos(@CurrentUser() user: User, @Param('id') id: string, @Body() body: { provider?: string; asset_id?: string; asset_ids?: unknown[]; passphrase?: string; media_type?: string; media_types?: unknown[] }) {
     const pp = body.passphrase && typeof body.passphrase === 'string' ? body.passphrase : undefined;
     if (Array.isArray(body.asset_ids) && body.provider) {
       const added: unknown[] = [];
-      for (const aid of body.asset_ids) {
-        const photo = this.journey.addProviderPhotoToGallery(Number(id), user.id, body.provider, String(aid), undefined, pp);
+      body.asset_ids.forEach((aid, i) => {
+        const mt = Array.isArray(body.media_types) && body.media_types[i] === 'video' ? 'video' : 'image';
+        const photo = this.journey.addProviderPhotoToGallery(Number(id), user.id, body.provider!, String(aid), undefined, pp, mt);
         if (photo) added.push(photo);
-      }
+      });
       return { photos: added, added: added.length };
     }
     if (!body.provider || !body.asset_id) {
       throw new HttpException({ error: 'provider and asset_id required' }, 400);
     }
-    const photo = this.journey.addProviderPhotoToGallery(Number(id), user.id, body.provider, body.asset_id, undefined, pp);
+    const photo = this.journey.addProviderPhotoToGallery(Number(id), user.id, body.provider, body.asset_id, undefined, pp, body.media_type === 'video' ? 'video' : 'image');
     if (!photo) {
       throw new HttpException({ error: 'Not allowed or duplicate' }, 403);
     }

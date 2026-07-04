@@ -15,7 +15,8 @@ import {
   type RegisterRequest, type LoginRequest, type ForgotPasswordRequest,
   type ResetPasswordRequest, type ChangePasswordRequest,
   type MfaVerifyLoginRequest, type MfaEnableRequest, type McpTokenCreateRequest,
-  type TripAddMemberRequest, type AssignmentReorderRequest,
+  type TripAddMemberRequest, type TripTransferOwnershipRequest,
+  type TripCreateGuestRequest, type TripRenameGuestRequest, type AssignmentReorderRequest,
   type PackingReorderRequest, type PackingCreateBagRequest, type TodoReorderRequest,
   type TripCreateRequest, type TripUpdateRequest, type TripCopyRequest,
   type DayCreateRequest, type DayUpdateRequest, type DayReorderRequest,
@@ -23,10 +24,11 @@ import {
   type ReservationCreateRequest, type ReservationUpdateRequest,
   type AccommodationCreateRequest, type AccommodationUpdateRequest,
   type BudgetCreateItemRequest, type BudgetUpdateItemRequest,
-  type PackingCreateItemRequest, type PackingUpdateItemRequest,
+  type PackingCreateItemRequest, type PackingUpdateItemRequest, type PackingSetSharingRequest,
   type TodoCreateItemRequest, type TodoUpdateItemRequest,
   type AssignmentCreateRequest, type AssignmentParticipantsRequest, type AssignmentTimeRequest,
   type PlaceBulkDeleteRequest,
+  type PlaceBulkUpdateRequest,
   type DayNoteCreateRequest, type DayNoteUpdateRequest,
   type PackingImportRequest, type PackingBagMembersRequest, type PackingUpdateBagRequest,
   type PackingCategoryAssigneesRequest,
@@ -41,9 +43,10 @@ import {
   type BookingImportPreviewItem,
   type BookingImportPreviewResponse,
   type BookingImportConfirmResponse,
+  type BookingImportMode,
 } from '@trek/shared'
 import { getSocketId } from './websocket'
-import { isReachable, probeNow } from '../sync/connectivity'
+import { probeNow } from '../sync/connectivity'
 
 /**
  * Validate a response payload against its @trek/shared Zod schema — but only in
@@ -175,13 +178,17 @@ apiClient.interceptors.response.use(
       // distinguish a proxy auth challenge from a genuine outage. If the server
       // is reachable, a top-level reload lets the edge proxy run its auth flow.
       if (!error.response && navigator.onLine) {
-        await probeNow()
-        // Both the original request and the health probe failed while the device
-        // has a network interface. This matches the proxy-auth-challenge pattern
-        // (CF Access / Pangolin intercept all requests and CORS-block XHR).
-        // Guard with sessionStorage to prevent reload loops (server genuinely
-        // down would also land here, but only reloads once).
-        if (!isReachable()) {
+        // Only an actual edge-proxy auth wall warrants tearing down the SW to
+        // reauth: a reachable proxy (CF Access / Pangolin) that intercepts /api
+        // with a cross-origin redirect or an HTML login page. A genuine offline
+        // boot ALSO lands here — navigator.onLine reflects a network interface,
+        // not reachability, and is routinely true on mobile while offline. So
+        // gate strictly on a positive proxy signal; on plain offline do nothing
+        // and let the request reject so the cached shell + IndexedDB serve the
+        // app. Unregistering the SW here reloaded into a dead network and broke
+        // PWA offline mode (#1346).
+        const state = await probeNow()
+        if (state === 'proxy-wall') {
           const { pathname } = window.location
           if (!isAuthPublicPath(pathname) && !sessionStorage.getItem('proxy_reauth_attempted')) {
             sessionStorage.setItem('proxy_reauth_attempted', '1')
@@ -328,11 +335,16 @@ export const tripsApi = {
   update: (id: number | string, data: TripUpdateRequest) => apiClient.put(`/trips/${id}`, data).then(r => r.data),
   delete: (id: number | string) => apiClient.delete(`/trips/${id}`).then(r => r.data),
   uploadCover: (id: number | string, formData: FormData) => apiClient.post(`/trips/${id}/cover`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data),
+  searchCoverImages: (query: string) => apiClient.get('/trips/cover-images/search', { params: { query } }).then(r => r.data),
   archive: (id: number | string) => apiClient.put(`/trips/${id}`, { is_archived: true }).then(r => r.data),
   unarchive: (id: number | string) => apiClient.put(`/trips/${id}`, { is_archived: false }).then(r => r.data),
   getMembers: (id: number | string) => apiClient.get(`/trips/${id}/members`).then(r => r.data),
   addMember: (id: number | string, identifier: string) => apiClient.post(`/trips/${id}/members`, { identifier } satisfies TripAddMemberRequest).then(r => r.data),
   removeMember: (id: number | string, userId: number) => apiClient.delete(`/trips/${id}/members/${userId}`).then(r => r.data),
+  transferOwnership: (id: number | string, newOwnerId: number) => apiClient.post(`/trips/${id}/transfer`, { newOwnerId } satisfies TripTransferOwnershipRequest).then(r => r.data),
+  createGuest: (id: number | string, name: string) => apiClient.post(`/trips/${id}/guests`, { name } satisfies TripCreateGuestRequest).then(r => r.data),
+  renameGuest: (id: number | string, userId: number, name: string) => apiClient.put(`/trips/${id}/guests/${userId}`, { name } satisfies TripRenameGuestRequest).then(r => r.data),
+  deleteGuest: (id: number | string, userId: number) => apiClient.delete(`/trips/${id}/guests/${userId}`).then(r => r.data),
   copy: (id: number | string, data?: TripCopyRequest) => apiClient.post(`/trips/${id}/copy`, data || {}).then(r => r.data),
   bundle: (id: number | string) => apiClient.get(`/trips/${id}/bundle`).then(r => r.data),
 }
@@ -373,6 +385,8 @@ export const placesApi = {
       apiClient.post(`/trips/${tripId}/places/import/naver-list`, { url, enrich } satisfies PlaceImportListRequest).then(r => r.data),
   bulkDelete: (tripId: number | string, ids: number[]) =>
       apiClient.post(`/trips/${tripId}/places/bulk-delete`, { ids } satisfies PlaceBulkDeleteRequest).then(r => r.data),
+  bulkUpdate: (tripId: number | string, ids: number[], data: Omit<PlaceBulkUpdateRequest, 'ids'>) =>
+      apiClient.post(`/trips/${tripId}/places/bulk-update`, { ids, ...data } satisfies PlaceBulkUpdateRequest).then(r => r.data),
 }
 
 export const assignmentsApi = {
@@ -394,6 +408,10 @@ export const packingApi = {
   update: (tripId: number | string, id: number, data: PackingUpdateItemRequest) => apiClient.put(`/trips/${tripId}/packing/${id}`, data).then(r => r.data),
   delete: (tripId: number | string, id: number) => apiClient.delete(`/trips/${tripId}/packing/${id}`).then(r => r.data),
   reorder: (tripId: number | string, orderedIds: number[]) => apiClient.put(`/trips/${tripId}/packing/reorder`, { orderedIds } satisfies PackingReorderRequest).then(r => r.data),
+  setSharing: (tripId: number | string, id: number, data: PackingSetSharingRequest) => apiClient.put(`/trips/${tripId}/packing/${id}/sharing`, data).then(r => r.data),
+  clone: (tripId: number | string, id: number) => apiClient.post(`/trips/${tripId}/packing/${id}/clone`).then(r => r.data),
+  addContributor: (tripId: number | string, id: number) => apiClient.post(`/trips/${tripId}/packing/${id}/contributors`).then(r => r.data),
+  removeContributor: (tripId: number | string, id: number, userId: number) => apiClient.delete(`/trips/${tripId}/packing/${id}/contributors/${userId}`).then(r => r.data),
   getCategoryAssignees: (tripId: number | string) => apiClient.get(`/trips/${tripId}/packing/category-assignees`).then(r => r.data),
   setCategoryAssignees: (tripId: number | string, categoryName: string, userIds: number[]) => apiClient.put(`/trips/${tripId}/packing/category-assignees/${encodeURIComponent(categoryName)}`, { user_ids: userIds } satisfies PackingCategoryAssigneesRequest).then(r => r.data),
   listTemplates: (tripId: number | string) => apiClient.get(`/trips/${tripId}/packing/templates`).then(r => r.data),
@@ -442,6 +460,52 @@ export const adminApi = {
   updateOidc: (data: Record<string, unknown>) => apiClient.put('/admin/oidc', data).then(r => r.data),
   addons: () => apiClient.get('/admin/addons').then(r => r.data),
   updateAddon: (id: number | string, data: Record<string, unknown>) => apiClient.put(`/admin/addons/${id}`, data).then(r => r.data),
+  plugins: () => apiClient.get('/admin/plugins').then(r => r.data),
+  pluginBrowse: () => apiClient.get('/admin/plugins/registry').then(r => r.data),
+  pluginDetail: (id: string) => apiClient.get(`/admin/plugins/registry/${encodeURIComponent(id)}`).then(r => r.data),
+  pluginInstall: (id: string, version?: string) => apiClient.post('/admin/plugins/install', { id, version }).then(r => r.data),
+  pluginActivate: (id: string, consent?: boolean) => apiClient.post(`/admin/plugins/${id}/activate`, consent ? { consent: true } : {}).then(r => r.data),
+  pluginDeactivate: (id: string) => apiClient.post(`/admin/plugins/${id}/deactivate`).then(r => r.data),
+  pluginUpdate: (id: string) => apiClient.post(`/admin/plugins/${id}/update`).then(r => r.data),
+  pluginUninstall: (id: string, deleteData: boolean) => apiClient.post(`/admin/plugins/${id}/uninstall`, { deleteData }).then(r => r.data),
+  pluginRescan: () => apiClient.post('/admin/plugins/rescan').then(r => r.data),
+  pluginErrors: (id: string) => apiClient.get(`/admin/plugins/${id}/errors`).then(r => r.data),
+  pluginAudit: (id: string) => apiClient.get(`/admin/plugins/${id}/audit`).then(r => r.data),
+  // Local LLM (Ollama) management for the AI-parsing addon.
+  llmLocalModels: (baseUrl: string): Promise<{ models: { name: string; size: number }[] }> =>
+    apiClient.get('/admin/llm/local/models', { params: { baseUrl } }).then(r => r.data),
+  /** Pull a model, streaming Ollama's NDJSON progress to `onProgress`. */
+  llmLocalPull: async (
+    baseUrl: string,
+    model: string,
+    onProgress: (p: { status?: string; total?: number; completed?: number; error?: string }) => void,
+  ): Promise<void> => {
+    const res = await fetch('/api/admin/llm/local/pull', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseUrl, model }),
+    })
+    if (!res.ok || !res.body) {
+      let msg = `Pull failed (${res.status})`
+      try { msg = (await res.json())?.error ?? msg } catch { /* non-json */ }
+      throw new Error(msg)
+    }
+    const reader = res.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try { onProgress(JSON.parse(line)) } catch { /* skip partial */ }
+      }
+    }
+  },
   checkVersion: () => apiClient.get('/admin/version-check').then(r => r.data),
   getBagTracking: () => apiClient.get('/admin/bag-tracking').then(r => r.data),
   updateBagTracking: (enabled: boolean) => apiClient.put('/admin/bag-tracking', { enabled }).then(r => r.data),
@@ -465,7 +529,8 @@ export const adminApi = {
   updateTemplateItem: (templateId: number, itemId: number, data: { name: string }) => apiClient.put(`/admin/packing-templates/${templateId}/items/${itemId}`, data).then(r => r.data),
   deleteTemplateItem: (templateId: number, itemId: number) => apiClient.delete(`/admin/packing-templates/${templateId}/items/${itemId}`).then(r => r.data),
   listInvites: () => apiClient.get('/admin/invites').then(r => r.data),
-  createInvite: (data: { max_uses: number; expires_in_days?: number }) => apiClient.post('/admin/invites', data).then(r => r.data),
+  listInviteTrips: () => apiClient.get('/admin/invites/trips').then(r => r.data),
+  createInvite: (data: { max_uses: number; expires_in_days?: number; trip_id?: number | null }) => apiClient.post('/admin/invites', data).then(r => r.data),
   deleteInvite: (id: number) => apiClient.delete(`/admin/invites/${id}`).then(r => r.data),
   auditLog: (params?: { limit?: number; offset?: number }) =>
       apiClient.get('/admin/audit-log', { params }).then(r => r.data),
@@ -486,6 +551,14 @@ export const adminApi = {
 
 export const addonsApi = {
   enabled: () => apiClient.get('/addons').then(r => r.data),
+}
+
+export const pluginsApi = {
+  // Active plugins the client renders (page nav entries, dashboard widgets).
+  active: () => apiClient.get('/plugins').then(r => r.data),
+  // Call one of a plugin's own declared routes through the host proxy.
+  invoke: (id: string, sub: string, init?: { method?: string; body?: unknown }) =>
+    apiClient.request({ url: `/plugins/${id}${sub}`, method: init?.method || 'GET', data: init?.body }).then(r => r.data),
 }
 
 export const airtrailApi = {
@@ -538,9 +611,16 @@ export const journeyApi = {
       onUploadProgress: opts?.onUploadProgress,
       signal: opts?.signal,
     }).then(r => r.data),
-  addProviderPhotosToGallery: (journeyId: number, provider: string, assetIds: string[], passphrase?: string) => apiClient.post(`/journeys/${journeyId}/gallery/provider-photos`, { provider, asset_ids: assetIds, ...(passphrase ? { passphrase } : {}) } satisfies JourneyProviderPhotosRequest).then(r => r.data),
+  uploadGalleryVideo: (journeyId: number, formData: FormData, opts?: { onUploadProgress?: (e: import('axios').AxiosProgressEvent) => void; idempotencyKey?: string; signal?: AbortSignal }) =>
+    apiClient.post(`/journeys/${journeyId}/gallery/video`, formData, {
+      headers: { 'Content-Type': undefined as any, ...(opts?.idempotencyKey ? { 'X-Idempotency-Key': opts.idempotencyKey } : {}) },
+      timeout: 0,
+      onUploadProgress: opts?.onUploadProgress,
+      signal: opts?.signal,
+    }).then(r => r.data),
+  addProviderPhotosToGallery: (journeyId: number, provider: string, assetIds: string[], passphrase?: string, mediaTypes?: string[]) => apiClient.post(`/journeys/${journeyId}/gallery/provider-photos`, { provider, asset_ids: assetIds, ...(passphrase ? { passphrase } : {}), ...(mediaTypes ? { media_types: mediaTypes } : {}) } satisfies JourneyProviderPhotosRequest).then(r => r.data),
   addProviderPhoto: (entryId: number, provider: string, assetId: string, caption?: string, passphrase?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_id: assetId, caption, ...(passphrase ? { passphrase } : {}) }).then(r => r.data),
-  addProviderPhotos: (entryId: number, provider: string, assetIds: string[], caption?: string, passphrase?: string) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_ids: assetIds, caption, ...(passphrase ? { passphrase } : {}) }).then(r => r.data),
+  addProviderPhotos: (entryId: number, provider: string, assetIds: string[], caption?: string, passphrase?: string, mediaTypes?: string[]) => apiClient.post(`/journeys/entries/${entryId}/provider-photos`, { provider, asset_ids: assetIds, caption, ...(passphrase ? { passphrase } : {}), ...(mediaTypes ? { media_types: mediaTypes } : {}) }).then(r => r.data),
   linkPhoto: (entryId: number, journeyPhotoId: number) => apiClient.post(`/journeys/entries/${entryId}/link-photo`, { journey_photo_id: journeyPhotoId }).then(r => r.data),
   unlinkPhoto: (entryId: number, journeyPhotoId: number) => apiClient.delete(`/journeys/entries/${entryId}/photos/${journeyPhotoId}`).then(r => r.data),
   deleteGalleryPhoto: (journeyId: number, journeyPhotoId: number) => apiClient.delete(`/journeys/${journeyId}/gallery/${journeyPhotoId}`).then(r => r.data),
@@ -625,17 +705,31 @@ export const reservationsApi = {
   update: (tripId: number | string, id: number, data: ReservationUpdateRequest) => apiClient.put(`/trips/${tripId}/reservations/${id}`, data).then(r => r.data),
   delete: (tripId: number | string, id: number) => apiClient.delete(`/trips/${tripId}/reservations/${id}`).then(r => r.data),
   updatePositions: (tripId: number | string, positions: { id: number; day_plan_position: number }[], dayId?: number) => apiClient.put(`/trips/${tripId}/reservations/positions`, { positions, day_id: dayId }).then(r => r.data),
-  importBookingPreview: (tripId: number | string, files: File[]): Promise<BookingImportPreviewResponse> => {
+  importBookingPreview: (tripId: number | string, files: File[], mode: BookingImportMode = 'no-ai'): Promise<BookingImportPreviewResponse> => {
     const fd = new FormData()
     for (const f of files) fd.append('files', f)
-    return apiClient.post(`/trips/${tripId}/reservations/import/booking`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+    fd.append('mode', mode)
+    // No client-side timeout: kitinerary + LLM extraction routinely exceeds the
+    // global 8s default (a cold local model alone can take ~45s).
+    return apiClient.post(`/trips/${tripId}/reservations/import/booking`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 }).then(r => r.data)
   },
   importBookingConfirm: (tripId: number | string, items: BookingImportPreviewItem[]): Promise<BookingImportConfirmResponse> =>
     apiClient.post(`/trips/${tripId}/reservations/import/booking/confirm`, { items }).then(r => r.data),
+  // Start a background parse: returns a job id at once; progress + result arrive
+  // over the WebSocket (import:progress / import:done / import:error).
+  importBookingAsync: (tripId: number | string, files: File[], mode: BookingImportMode = 'no-ai'): Promise<{ jobId: string }> => {
+    const fd = new FormData()
+    for (const f of files) fd.append('files', f)
+    fd.append('mode', mode)
+    return apiClient.post(`/trips/${tripId}/reservations/import/booking/async`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 }).then(r => r.data)
+  },
+  // Poll a background job — recovery path when a WebSocket push was missed.
+  importJobStatus: (tripId: number | string, jobId: string): Promise<{ status: 'running' | 'done' | 'error'; done: number; total: number; result?: BookingImportPreviewResponse; error?: string }> =>
+    apiClient.get(`/trips/${tripId}/reservations/import/jobs/${jobId}`).then(r => r.data),
 }
 
 export const healthApi = {
-  features: (): Promise<{ bookingImport: boolean }> => apiClient.get('/health/features').then(r => r.data),
+  features: (): Promise<{ bookingImport: boolean; aiParsing: boolean }> => apiClient.get('/health/features').then(r => r.data),
 }
 
 export const weatherApi = {
@@ -646,6 +740,17 @@ export const weatherApi = {
 export const configApi = {
   getPublicConfig: (): Promise<{ defaultLanguage: string }> =>
       apiClient.get('/config').then(r => r.data),
+}
+
+export interface HelpNavItem { title: string; slug: string }
+export interface HelpNavSection { title: string; pages: HelpNavItem[] }
+export interface HelpPageData { slug: string; title: string; markdown: string }
+
+export const helpApi = {
+  index: (): Promise<{ sections: HelpNavSection[] }> =>
+    apiClient.get('/help/index').then(r => r.data),
+  page: (slug: string): Promise<HelpPageData> =>
+    apiClient.get(`/help/page/${encodeURIComponent(slug)}`).then(r => r.data),
 }
 
 export const settingsApi = {
@@ -725,6 +830,24 @@ export const shareApi = {
   createLink: (tripId: number | string, perms?: Record<string, boolean>) => apiClient.post(`/trips/${tripId}/share-link`, perms || {}).then(r => r.data),
   deleteLink: (tripId: number | string) => apiClient.delete(`/trips/${tripId}/share-link`).then(r => r.data),
   getSharedTrip: (token: string) => apiClient.get(`/shared/${token}`).then(r => r.data),
+}
+
+// Public transit routing (#1065) — Transitous/MOTIS proxied through the server.
+export const transitApi = {
+  geocode: (q: string, opts?: { lang?: string; near?: string }) =>
+    apiClient.get('/transit/geocode', { params: { q, lang: opts?.lang, near: opts?.near } }).then(r => r.data),
+  plan: (params: { from: string; to: string; time?: string; arriveBy?: boolean; modes?: string; maxTransfers?: number }) =>
+    apiClient.get('/transit/plan', { params }).then(r => r.data),
+}
+
+// Trip invite links (#1143) — join a trip as an existing, logged-in user.
+export const tripInviteApi = {
+  getLink: (tripId: number | string) => apiClient.get(`/trips/${tripId}/invite-link`).then(r => r.data),
+  createLink: (tripId: number | string, expires_in_days?: number | null) =>
+    apiClient.post(`/trips/${tripId}/invite-link`, { expires_in_days: expires_in_days ?? null }).then(r => r.data),
+  deleteLink: (tripId: number | string) => apiClient.delete(`/trips/${tripId}/invite-link`).then(r => r.data),
+  preview: (token: string) => apiClient.get(`/trip-invites/${token}`).then(r => r.data),
+  accept: (token: string) => apiClient.post(`/trip-invites/${token}/accept`).then(r => r.data),
 }
 
 export const notificationsApi = {

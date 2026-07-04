@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Alleen in totaal — nog niet verrekend',
   'costs.tapToInclude': 'Tik om toe te voegen',
   'costs.amount': 'Bedrag',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Alle categorieën',
+  'costs.filter.allDays': 'Alle dagen',
+  'costs.expensesCount': '{count} uitgaven',
 };
-
 export default budget;

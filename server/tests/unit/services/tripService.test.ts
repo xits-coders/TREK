@@ -33,8 +33,8 @@ vi.mock('../../../src/config', () => ({
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { resetTestDb } from '../../helpers/test-db';
-import { createUser, createTrip, createReservation, createPlace, createDay, createDayAssignment, createDayNote } from '../../helpers/factories';
-import { exportICS, generateDays, deleteOldCover, updateTrip } from '../../../src/services/tripService';
+import { createUser, createTrip, createReservation, createPlace, createDay, createDayAssignment, createDayNote, addTripMember } from '../../helpers/factories';
+import { exportICS, generateDays, deleteOldCover, updateTrip, transferOwnership, createGuest, renameGuest, deleteGuest, listMembers, addMember } from '../../../src/services/tripService';
 import fs from 'fs';
 
 beforeAll(() => {
@@ -505,5 +505,123 @@ describe('resyncReservationDays (#1288)', () => {
     updateTrip(trip.id, user.id, { start_date: '2025-06-10', end_date: '2025-06-14' }, 'user');
     const res = testDb.prepare('SELECT day_id FROM reservations WHERE id = ?').get(resId) as { day_id: number };
     expect(res.day_id).toBe(origDayId);
+  });
+});
+
+describe('transferOwnership (#973)', () => {
+  it('TRIP-SVC-020: hands the trip to a member and demotes the former owner to a member', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: member } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    addTripMember(testDb, trip.id, member.id);
+
+    const result = transferOwnership(trip.id, member.id, owner.id);
+    expect(result.toEmail).toBe(member.email);
+
+    const updated = testDb.prepare('SELECT user_id FROM trips WHERE id = ?').get(trip.id) as { user_id: number };
+    expect(updated.user_id).toBe(member.id);
+
+    // New owner no longer sits in trip_members, former owner now does.
+    const memberIds = (testDb.prepare('SELECT user_id FROM trip_members WHERE trip_id = ?').all(trip.id) as { user_id: number }[]).map(r => r.user_id);
+    expect(memberIds).toContain(owner.id);
+    expect(memberIds).not.toContain(member.id);
+  });
+
+  it('TRIP-SVC-021: rejects a transfer from a non-owner', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: member } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    addTripMember(testDb, trip.id, member.id);
+    // member (not the owner) attempts the transfer
+    expect(() => transferOwnership(trip.id, member.id, member.id)).toThrow();
+  });
+
+  it('TRIP-SVC-022: rejects a transfer to someone who is not a member', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: stranger } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    expect(() => transferOwnership(trip.id, stranger.id, owner.id)).toThrow('New owner must be a trip member');
+  });
+
+  it('TRIP-SVC-023: rejects transferring to yourself', () => {
+    const { user: owner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    expect(() => transferOwnership(trip.id, owner.id, owner.id)).toThrow('You already own this trip');
+  });
+});
+
+describe('guest members (#1362)', () => {
+  it('TRIP-SVC-030: createGuest adds a credential-less user joined into the trip', () => {
+    const { user: owner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+
+    const { member } = createGuest(trip.id, '  Anna  ', owner.id);
+    expect(member.username).toBe('Anna');
+    expect(member.is_guest).toBe(true);
+
+    const row = testDb.prepare('SELECT username, email, password_hash, is_guest, role FROM users WHERE id = ?').get(member.id) as any;
+    expect(row.is_guest).toBe(1);
+    expect(row.password_hash).toBe('');
+    expect(row.email).toMatch(/@guests\.invalid$/);
+    expect(row.role).toBe('user');
+
+    // Joined as a trip member.
+    const m = testDb.prepare('SELECT id FROM trip_members WHERE trip_id = ? AND user_id = ?').get(trip.id, member.id);
+    expect(m).toBeTruthy();
+
+    // Surfaces in listMembers with is_guest=true and the typed display name.
+    const { members } = listMembers(trip.id, owner.id) as any;
+    const guest = members.find((x: any) => x.id === member.id);
+    expect(guest.username).toBe('Anna');
+    expect(guest.is_guest).toBe(true);
+  });
+
+  it('TRIP-SVC-031: a duplicate guest name is disambiguated with a numeric suffix', () => {
+    const { user: owner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const a = createGuest(trip.id, 'Sam', owner.id);
+    const b = createGuest(trip.id, 'Sam', owner.id);
+    expect(a.member.username).toBe('Sam');
+    expect(b.member.username).toBe('Sam 2');
+  });
+
+  it('TRIP-SVC-032: renameGuest updates the display name (trip-scoped, guest-only)', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: other } = createUser(testDb);
+    const otherTrip = createTrip(testDb, other.id);
+    const trip = createTrip(testDb, owner.id);
+    const { member } = createGuest(trip.id, 'Bob', owner.id);
+
+    expect(renameGuest(trip.id, member.id, 'Robert')).toBe(true);
+    expect((testDb.prepare('SELECT username FROM users WHERE id = ?').get(member.id) as any).username).toBe('Robert');
+
+    // A real user cannot be renamed through the guest path…
+    expect(renameGuest(trip.id, owner.id, 'Hacked')).toBe(false);
+    // …and a guest cannot be renamed from a different trip.
+    expect(renameGuest(otherTrip.id, member.id, 'Nope')).toBe(false);
+  });
+
+  it('TRIP-SVC-033: deleteGuest removes the user (cascading membership), guest-only + trip-scoped', () => {
+    const { user: owner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const { member } = createGuest(trip.id, 'Carol', owner.id);
+
+    // Real members are not deletable via the guest path.
+    expect(deleteGuest(trip.id, owner.id)).toBe(false);
+
+    expect(deleteGuest(trip.id, member.id)).toBe(true);
+    expect(testDb.prepare('SELECT id FROM users WHERE id = ?').get(member.id)).toBeUndefined();
+    expect(testDb.prepare('SELECT id FROM trip_members WHERE user_id = ?').get(member.id)).toBeUndefined();
+  });
+
+  it('TRIP-SVC-034: a guest is never invitable (addMember) nor a transfer target', () => {
+    const { user: owner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const { member } = createGuest(trip.id, 'Dora', owner.id);
+
+    // The synthetic username/email must not resolve through the invite box.
+    expect(() => addMember(trip.id, 'Dora', owner.id, owner.id)).toThrow('User not found');
+    // Ownership can never be handed to a guest.
+    expect(() => transferOwnership(trip.id, member.id, owner.id)).toThrow('Cannot transfer ownership to a guest');
   });
 });

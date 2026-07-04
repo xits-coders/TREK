@@ -86,5 +86,8 @@ const login: TranslationStrings = {
   'login.oidcLoggedOut': 'Has cerrado sesión. Vuelve a iniciar sesión con tu proveedor SSO.',
   'login.passkey.signIn': 'Iniciar sesión con una passkey',
   'login.passkey.failed': 'Error al iniciar sesión con la passkey. Inténtalo de nuevo.',
+  'login.insecureCookie.title': "Login won't stick over HTTP",
+  'login.insecureCookie.body': "You’re connecting over plain HTTP, so your browser drops TREK’s secure session cookie — the next request fails with \"Access token required\". Fix: use HTTPS, or for a home-lab set COOKIE_SECURE=false.",
+  'login.insecureCookie.link': "Open the Troubleshooting guide",
 };
 export default login;

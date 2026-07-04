@@ -4,12 +4,13 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useAddonStore } from '../../store/addonStore'
+import { usePluginStore } from '../../store/pluginStore'
 import { useTranslation } from '../../i18n'
-import { Plane, LogOut, Settings, ChevronDown, Shield, ArrowLeft, Users, Moon, Sun, Monitor, CalendarDays, Briefcase, Globe, Compass } from 'lucide-react'
+import { Plane, LogOut, Settings, ChevronDown, Shield, ArrowLeft, Users, Moon, Sun, Monitor, CalendarDays, Briefcase, Globe, Compass, BookOpen, Bookmark, Blocks } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import InAppNotificationBell from './InAppNotificationBell.tsx'
 
-const ADDON_ICONS: Record<string, LucideIcon> = { CalendarDays, Briefcase, Globe, Compass }
+const ADDON_ICONS: Record<string, LucideIcon> = { CalendarDays, Briefcase, Globe, Compass, Bookmark }
 
 interface NavbarProps {
   tripTitle?: string
@@ -52,6 +53,7 @@ export default function Navbar({ tripTitle, tripId, onBack, showBack, onShare }:
 
   // Only show 'global' type addons in the navbar — 'integration' addons have no dedicated page
   const globalAddons = allAddons.filter((a: Addon) => a.type === 'global' && a.enabled)
+  const pagePlugins = usePluginStore(s => s.plugins).filter(p => p.type === 'page')
 
   useEffect(() => {
     if (user) loadAddons()
@@ -135,7 +137,7 @@ export default function Navbar({ tripTitle, tripId, onBack, showBack, onShare }:
 
       {/* Centred liquid-glass tab menu (design handoff). Absolutely positioned so
           the left brand block and the right action cluster keep their layout. */}
-      {globalAddons.length > 0 && !tripTitle && (
+      {(globalAddons.length > 0 || pagePlugins.length > 0) && !tripTitle && (
         <div
           className="trek-nav-pill"
           style={{
@@ -147,14 +149,15 @@ export default function Navbar({ tripTitle, tripId, onBack, showBack, onShare }:
           }}
         >
           {[{ id: '__trips', path: '/dashboard', label: t('nav.myTrips'), Icon: Briefcase },
-            ...globalAddons.map(a => ({ id: a.id, path: `/${a.id}`, label: getAddonName(a), Icon: ADDON_ICONS[a.icon] || CalendarDays }))
+            ...globalAddons.map(a => ({ id: a.id, path: `/${a.id}`, label: getAddonName(a), Icon: ADDON_ICONS[a.icon] || CalendarDays })),
+            ...pagePlugins.map(p => ({ id: `plugin:${p.id}`, path: `/plugins/${p.id}`, label: p.name, Icon: Blocks }))
           ].map(tab => {
             const isActive = location.pathname === tab.path
             return (
               <Link key={tab.id} to={tab.path}
                 className="flex items-center gap-1.5 transition-colors"
                 style={{
-                  padding: '5px 16px', borderRadius: 9, fontSize: 13.5, fontWeight: 500,
+                  padding: '5px 16px', borderRadius: 9, fontSize: 'calc(13.5px * var(--fs-scale-body, 1))', fontWeight: 500,
                   color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
                   background: isActive ? 'var(--bg-card)' : 'transparent',
                   boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.05)' : 'none',
@@ -252,6 +255,14 @@ export default function Navbar({ tripTitle, tripId, onBack, showBack, onShare }:
                     {t('nav.settings')}
                   </Link>
 
+                  <Link to="/help" onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm transition-colors text-content-secondary"
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <BookOpen className="w-4 h-4" />
+                    {t('nav.help')}
+                  </Link>
+
                   {user.role === 'admin' && (
                     <Link to="/admin" onClick={() => setUserMenuOpen(false)}
                       className="flex items-center gap-2 px-4 py-2 text-sm transition-colors text-content-secondary"
@@ -274,7 +285,7 @@ export default function Navbar({ tripTitle, tripId, onBack, showBack, onShare }:
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--bg-tertiary)', borderRadius: 99, padding: '4px 12px' }}>
                           <img src={dark ? '/text-light.svg' : '/text-dark.svg'} alt="TREK" style={{ height: 10, opacity: 0.5 }} />
-                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-faint)' }}>v{appVersion}</span>
+                          <span style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600, color: 'var(--text-faint)' }}>v{appVersion}</span>
                         </div>
                         <a href="https://discord.gg/NhZBDSd4qW" target="_blank" rel="noopener noreferrer"
                           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 99, background: 'var(--bg-tertiary)', transition: 'background 0.15s' }}

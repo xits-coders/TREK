@@ -16,5 +16,6 @@ const nav: TranslationStrings = {
   'nav.bottomAdmin': 'Nastavení správce',
   'nav.bottomLogout': 'Odhlásit se',
   'nav.bottomAdminBadge': 'Správce',
+  'nav.help': 'Help',
 };
 export default nav;

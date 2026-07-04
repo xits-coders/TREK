@@ -7,6 +7,7 @@ const common: TranslationStrings = {
   'common.cancel': '취소',
   'common.clear': '지우기',
   'common.delete': '삭제',
+  'common.preview': '미리보기',
   'common.edit': '편집',
   'common.add': '추가',
   'common.loading': '로딩 중...',
@@ -50,5 +51,17 @@ const common: TranslationStrings = {
   'common.collapse': '접기',
   'common.copy': '복사',
   'common.copied': '복사됨',
+  'common.datepicker.prevMonth': 'Previous month', // en-fallback
+  'common.datepicker.nextMonth': 'Next month', // en-fallback
+  'common.datepicker.prevYear': 'Previous year', // en-fallback
+  'common.datepicker.nextYear': 'Next year', // en-fallback
+  'common.datepicker.prevYears': 'Previous years', // en-fallback
+  'common.datepicker.nextYears': 'Next years', // en-fallback
+  'common.datepicker.selectMonth': 'Select month', // en-fallback
+  'common.datepicker.selectYear': 'Select year', // en-fallback
+  'common.datepicker.enterManually': 'Enter date manually', // en-fallback
+  'common.datepicker.typeDate': 'Type a date', // en-fallback
+  'common.datepicker.dialog': 'Date picker', // en-fallback
+  'common.datepicker.clearDate': 'Clear date', // en-fallback
 };
 export default common;

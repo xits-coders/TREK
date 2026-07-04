@@ -9,15 +9,17 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type mapboxgl from 'mapbox-gl'
-import { Plane, Train, Ship, Car, Bus, Sailboat, Bike, CarTaxiFront, Route } from 'lucide-react'
+import { Plane, Train, Ship, Car, Bus, Sailboat, Bike, CarTaxiFront, Route, TramFront } from 'lucide-react'
+import { getTransitMapSegments } from './transitGeometry'
+import { geodesicArcs } from './flightGeodesy'
 import { escapeHtml } from '@trek/shared'
 import type { Reservation, ReservationEndpoint } from '../../types'
 
 export const RESERVATION_SOURCE_ID = 'trek-reservations'
 export const RESERVATION_LINE_LAYER_ID = 'trek-reservations-lines'
 
-type TransportType = 'flight' | 'train' | 'cruise' | 'car' | 'bus' | 'taxi' | 'bicycle' | 'ferry' | 'transport_other'
-const TRANSPORT_TYPES: TransportType[] = ['flight', 'train', 'cruise', 'car', 'bus', 'taxi', 'bicycle', 'ferry', 'transport_other']
+type TransportType = 'flight' | 'train' | 'cruise' | 'car' | 'bus' | 'taxi' | 'bicycle' | 'ferry' | 'transit' | 'transport_other'
+const TRANSPORT_TYPES: TransportType[] = ['flight', 'train', 'cruise', 'car', 'bus', 'taxi', 'bicycle', 'ferry', 'transit', 'transport_other']
 const TRANSPORT_COLOR = '#3b82f6'
 
 const TYPE_META: Record<TransportType, { icon: typeof Plane; geodesic: boolean }> = {
@@ -29,46 +31,12 @@ const TYPE_META: Record<TransportType, { icon: typeof Plane; geodesic: boolean }
   taxi: { icon: CarTaxiFront, geodesic: false },
   bicycle: { icon: Bike, geodesic: false },
   ferry: { icon: Sailboat, geodesic: true },
+  transit: { icon: TramFront, geodesic: false },
   transport_other: { icon: Route, geodesic: false },
 }
 
-// ── geometry helpers (ported from ReservationOverlay.tsx) ────────────────
+// ── geometry helpers (shared with ReservationOverlay via flightGeodesy) ──
 const toRad = (d: number) => d * Math.PI / 180
-const toDeg = (r: number) => r * 180 / Math.PI
-
-function greatCircle(a: [number, number], b: [number, number], steps = 256): [number, number][] {
-  const [lat1, lng1] = [toRad(a[0]), toRad(a[1])]
-  const [lat2, lng2] = [toRad(b[0]), toRad(b[1])]
-  const d = 2 * Math.asin(Math.sqrt(Math.sin((lat2 - lat1) / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin((lng2 - lng1) / 2) ** 2))
-  if (d === 0) return [a, b]
-  const pts: [number, number][] = []
-  for (let i = 0; i <= steps; i++) {
-    const f = i / steps
-    const A = Math.sin((1 - f) * d) / Math.sin(d)
-    const B = Math.sin(f * d) / Math.sin(d)
-    const x = A * Math.cos(lat1) * Math.cos(lng1) + B * Math.cos(lat2) * Math.cos(lng2)
-    const y = A * Math.cos(lat1) * Math.sin(lng1) + B * Math.cos(lat2) * Math.sin(lng2)
-    const z = A * Math.sin(lat1) + B * Math.sin(lat2)
-    const lat = Math.atan2(z, Math.sqrt(x * x + y * y))
-    const lng = Math.atan2(y, x)
-    pts.push([toDeg(lat), toDeg(lng)])
-  }
-  return pts
-}
-
-function splitAntimeridian(points: [number, number][]): [number, number][][] {
-  const segments: [number, number][][] = []
-  let cur: [number, number][] = []
-  for (let i = 0; i < points.length; i++) {
-    if (i > 0 && Math.abs(points[i][1] - points[i - 1][1]) > 180) {
-      if (cur.length > 1) segments.push(cur)
-      cur = []
-    }
-    cur.push(points[i])
-  }
-  if (cur.length > 1) segments.push(cur)
-  return segments
-}
 
 function haversineKm(a: [number, number], b: [number, number]): number {
   const R = 6371
@@ -155,7 +123,10 @@ function buildItems(reservations: Reservation[]): TransportItem[] {
       const a = waypoints[i]
       const b = waypoints[i + 1]
       const segArcs = isGeo
-        ? splitAntimeridian(greatCircle([a.lat, a.lng], [b.lat, b.lng]))
+        // GL maps repeat features across world copies themselves, so one
+        // continuous unwrapped arc is enough (a shifted duplicate would
+        // coincide with the wrapped copy and double the line opacity).
+        ? geodesicArcs([a.lat, a.lng], [b.lat, b.lng], false)
         : [[[a.lat, a.lng], [b.lat, b.lng]] as [number, number][]]
       arcs.push(...segArcs)
       distanceKm += haversineKm([a.lat, a.lng], [b.lat, b.lng])
@@ -232,6 +203,7 @@ type MarkerConstructor = new (options?: { element?: HTMLElement; anchor?: string
 export class ReservationMapboxOverlay {
   private map: mapboxgl.Map
   private items: TransportItem[] = []
+  private roadRoutes: Map<number, [number, number][]> = new Map()
   private opts: ReservationOverlayOptions
   private MarkerCtor: MarkerConstructor
   private endpointMarkers: GlMarker[] = []
@@ -250,9 +222,10 @@ export class ReservationMapboxOverlay {
     map.on('render', this.updateStatsRotation)
   }
 
-  update(reservations: Reservation[], opts: ReservationOverlayOptions) {
+  update(reservations: Reservation[], opts: ReservationOverlayOptions, roadRoutes?: Map<number, [number, number][]>) {
     this.opts = opts
     this.items = buildItems(reservations)
+    this.roadRoutes = roadRoutes ?? new Map()
     this.render()
   }
 
@@ -275,16 +248,25 @@ export class ReservationMapboxOverlay {
     const map = this.map
     if (map.getSource(RESERVATION_SOURCE_ID)) return
     map.addSource(RESERVATION_SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    // White casing under real transit paths so the colored lines read cleanly.
+    map.addLayer({
+      id: RESERVATION_LINE_LAYER_ID + '-transit-casing',
+      type: 'line',
+      source: RESERVATION_SOURCE_ID,
+      filter: ['all', ['==', ['get', 'transitPath'], true], ['!=', ['get', 'walk'], true]] as any,
+      paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.85 },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
     map.addLayer({
       id: RESERVATION_LINE_LAYER_ID,
       type: 'line',
       source: RESERVATION_SOURCE_ID,
       paint: {
-        'line-color': TRANSPORT_COLOR,
-        'line-width': 2.5,
-        // Confirmed = solid + 0.75; pending = dashed + 0.55.
-        'line-opacity': ['case', ['==', ['get', 'status'], 'confirmed'], 0.75, 0.55] as any,
-        'line-dasharray': ['case', ['==', ['get', 'status'], 'confirmed'], ['literal', [1, 0]], ['literal', [3, 3]]] as any,
+        'line-color': ['coalesce', ['get', 'color'], TRANSPORT_COLOR] as any,
+        'line-width': ['case', ['==', ['get', 'transitPath'], true], ['case', ['==', ['get', 'walk'], true], 3, 3.5], 2.5] as any,
+        // Confirmed = solid + 0.75; pending = dashed + 0.55; walks always dotted.
+        'line-opacity': ['case', ['==', ['get', 'transitPath'], true], 0.95, ['case', ['==', ['get', 'status'], 'confirmed'], 0.75, 0.55]] as any,
+        'line-dasharray': ['case', ['==', ['get', 'walk'], true], ['literal', [0.1, 2.5]], ['case', ['==', ['get', 'status'], 'confirmed'], ['literal', [1, 0]], ['literal', [3, 3]]]] as any,
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
@@ -320,25 +302,51 @@ export class ReservationMapboxOverlay {
           const toPx = map.project([item.to.lng, item.to.lat])
           const dx = fromPx.x - toPx.x, dy = fromPx.y - toPx.y
           const dist = Math.sqrt(dx * dx + dy * dy)
-          const minPx = item.type === 'flight' ? 50 : item.type === 'cruise' ? 300 : item.type === 'car' ? 150 : 400
+          const minPx = item.type === 'flight' ? 50 : item.type === 'cruise' ? 300 : item.type === 'car' ? 150 : item.type === 'transit' ? 900 : 400
           if (dist >= minPx) labelVisibleIds.add(item.res.id)
         } catch { /* ignore */ }
       }
     }
 
     // ── line features ───────────────────────────────────────────────
-    const features = visibleItems.flatMap(item => item.arcs.map(seg => ({
-      type: 'Feature' as const,
-      properties: {
-        resId: item.res.id,
-        type: item.type,
-        status: item.res.status ?? 'pending',
-      },
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: seg.map(([lat, lng]) => [lng, lat]),
-      },
-    })))
+    const features = visibleItems.flatMap(item => {
+      const transitSegs = item.type === 'transit' ? getTransitMapSegments(item.res) : []
+      if (transitSegs.length > 0) {
+        return transitSegs.map(seg => ({
+          type: 'Feature' as const,
+          properties: {
+            resId: item.res.id,
+            type: item.type,
+            status: item.res.status ?? 'pending',
+            transitPath: true,
+            walk: seg.walk,
+            color: seg.walk ? '#64748b' : (seg.color || '#7c3aed'),
+          },
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: seg.coords.map(([lat, lng]) => [lng, lat]),
+          },
+        }))
+      }
+      // Prefer the real road route (car/bus/taxi/bicycle) over the straight arc.
+      const road = this.roadRoutes.get(item.res.id)
+      const lines = road && road.length >= 2 ? [road] : item.arcs
+      return lines.map(seg => ({
+        type: 'Feature' as const,
+        properties: {
+          resId: item.res.id,
+          type: item.type,
+          status: item.res.status ?? 'pending',
+          transitPath: false,
+          walk: false,
+          color: null as string | null,
+        },
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: seg.map(([lat, lng]) => [lng, lat]),
+        },
+      }))
+    })
     const src = map.getSource(RESERVATION_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined
     src?.setData({ type: 'FeatureCollection', features })
 

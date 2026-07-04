@@ -21,4 +21,4 @@ export function katColor(kat: string, allCategories: string[]) {
 
 export type FilterType = 'all' | 'my' | 'overdue' | 'done' | string
 
-export interface Member { id: number; username: string; avatar: string | null }
+export interface Member { id: number; username: string; avatar: string | null; is_guest?: boolean }

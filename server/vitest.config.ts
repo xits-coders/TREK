@@ -32,6 +32,11 @@ export default defineConfig({
       reporter: ['lcov', 'text'],
       reportsDirectory: './coverage',
       include: ['src/**/*.ts'],
+      // The plugin child bootstrap runs in a forked subprocess via tsx, so the
+      // parent's instrumentation can't measure it; it's exercised end-to-end by
+      // the supervisor integration test instead. Everything else in the plugin
+      // module runs in-process and is unit-tested.
+      exclude: ['src/nest/plugins/runtime/plugin-host-entry.ts'],
       // Coverage gate scoped to the new NestJS code only — the legacy codebase
       // is intentionally ungated. Raised to the DoD's >=80% bar once the first
       // module (weather) landed; ratchet further as more modules are migrated.

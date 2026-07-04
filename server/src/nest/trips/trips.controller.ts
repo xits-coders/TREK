@@ -29,6 +29,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { writeAudit, getClientIp, logInfo } from '../../services/auditLog';
 import { isDemoEmail } from '../../services/demo';
 import { NotFoundError, ValidationError } from '../../services/tripService';
+import { saveUnsplashCover, isUnsplashCoverUrl } from '../../services/unsplashService';
 
 const MAX_COVER_SIZE = 20 * 1024 * 1024;
 const coversDir = path.join(__dirname, '../../../uploads/covers');
@@ -71,6 +72,21 @@ export class TripsController {
     return { trips: this.trips.list(user.id, archived === '1' ? 1 : 0) };
   }
 
+  @Get('cover-images/search')
+  async coverImages(@Query('query') query?: string) {
+    try {
+      const result = await this.trips.searchCoverImages(query || '');
+      if ('error' in result) {
+        throw new HttpException({ error: result.error }, result.status);
+      }
+      return { photos: result.photos };
+    } catch (err: unknown) {
+      if (err instanceof HttpException) throw err;
+      console.error('Unsplash cover image error:', err);
+      throw new HttpException({ error: 'Error searching for cover images' }, 500);
+    }
+  }
+
   @Post()
   @HttpCode(201)
   create(@CurrentUser() user: User, @Body() body: Record<string, unknown>, @Req() req: Request) {
@@ -105,7 +121,7 @@ export class TripsController {
   }
 
   @Put(':id')
-  update(@CurrentUser() user: User, @Param('id') id: string, @Body() body: Record<string, unknown>, @Req() req: Request, @Headers('x-socket-id') socketId?: string) {
+  async update(@CurrentUser() user: User, @Param('id') id: string, @Body() body: Record<string, unknown>, @Req() req: Request, @Headers('x-socket-id') socketId?: string) {
     const access = this.trips.canAccessTrip(id, user.id);
     if (!access) {
       throw new HttpException({ error: 'Trip not found' }, 404);
@@ -122,8 +138,25 @@ export class TripsController {
     if (editFields.some((f) => body[f] !== undefined) && !this.trips.can('trip_edit', user.role, ownerId, user.id, isMember)) {
       throw new HttpException({ error: 'No permission to edit this trip' }, 403);
     }
+    // A chosen Unsplash cover arrives as an images.unsplash.com hot-link; download
+    // it into uploads/covers so the cover survives offline + CDN link-rot (#1277).
+    if (isUnsplashCoverUrl(body.cover_image)) {
+      try {
+        const filename = await saveUnsplashCover(body.cover_image, coversDir);
+        body.cover_image = `/uploads/covers/${filename}`;
+      } catch (e) {
+        console.error('Unsplash cover download failed:', e);
+        throw new HttpException({ error: 'Could not save the selected cover image' }, 502);
+      }
+    }
+    const oldCover = body.cover_image !== undefined
+      ? (this.trips.getRaw(id) as { cover_image: string | null } | undefined)?.cover_image
+      : undefined;
     try {
       const result = this.trips.update(id, user.id, body, user.role);
+      if (body.cover_image !== undefined && body.cover_image !== oldCover) {
+        this.trips.deleteOldCover(oldCover);
+      }
       if (Object.keys(result.changes).length > 0) {
         writeAudit({ userId: user.id, action: 'trip.update', ip: getClientIp(req), details: { tripId: Number(id), trip: result.newTitle, ...(result.ownerEmail ? { owner: result.ownerEmail } : {}), ...result.changes } });
         if (result.isAdminEdit && result.ownerEmail) logInfo(`Admin ${user.email} edited trip "${result.newTitle}" owned by ${result.ownerEmail}`);
@@ -243,6 +276,95 @@ export class TripsController {
       throw new HttpException({ error: 'No permission to remove members' }, 403);
     }
     this.trips.removeMember(id, targetId);
+    return { success: true };
+  }
+
+  @Post(':id/transfer')
+  transferOwnership(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body('newOwnerId') newOwnerId: unknown,
+    @Req() req: Request,
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    const access = this.trips.canAccessTrip(id, user.id);
+    if (!access) {
+      throw new HttpException({ error: 'Trip not found' }, 404);
+    }
+    // Owner-only: handing over a trip is reserved for its actual owner, not just
+    // anyone who can manage members.
+    if (access.user_id !== user.id) {
+      throw new HttpException({ error: 'Only the owner can transfer ownership' }, 403);
+    }
+    if (typeof newOwnerId !== 'number') {
+      throw new HttpException({ error: 'newOwnerId is required' }, 400);
+    }
+    try {
+      const result = this.trips.transferOwnership(id, newOwnerId, user.id);
+      writeAudit({ userId: user.id, action: 'trip.transfer_ownership', ip: getClientIp(req), details: { tripId: Number(id), trip: result.tripTitle, from: result.fromEmail, to: result.toEmail } });
+      // Nudge everyone viewing the trip to re-read it so the new ownership and the
+      // recomputed permissions take effect live.
+      const updatedTrip = this.trips.get(id, user.id);
+      this.trips.broadcast(id, 'trip:updated', { trip: updatedTrip }, socketId);
+      return { success: true };
+    } catch (e: unknown) {
+      if (e instanceof NotFoundError) throw new HttpException({ error: e.message }, 404);
+      if (e instanceof ValidationError) throw new HttpException({ error: e.message }, 400);
+      throw e;
+    }
+  }
+
+  /** Loads the trip or throws 404, then asserts the caller is its owner (guest CRUD, #1362). */
+  private requireOwner(id: string, user: User): void {
+    const access = this.trips.canAccessTrip(id, user.id);
+    if (!access) {
+      throw new HttpException({ error: 'Trip not found' }, 404);
+    }
+    if (access.user_id !== user.id) {
+      throw new HttpException({ error: 'Only the owner can manage guests' }, 403);
+    }
+  }
+
+  @Post(':id/guests')
+  @HttpCode(201)
+  createGuest(@CurrentUser() user: User, @Param('id') id: string, @Body('name') name: unknown) {
+    this.requireOwner(id, user);
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new HttpException({ error: 'Guest name is required' }, 400);
+    }
+    try {
+      // No notifyInvite: a guest has no inbox.
+      return this.trips.createGuest(id, name, user.id);
+    } catch (e: unknown) {
+      if (e instanceof ValidationError) throw new HttpException({ error: e.message }, 400);
+      throw e;
+    }
+  }
+
+  @Put(':id/guests/:userId')
+  renameGuest(@CurrentUser() user: User, @Param('id') id: string, @Param('userId') userId: string, @Body('name') name: unknown) {
+    this.requireOwner(id, user);
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new HttpException({ error: 'Guest name is required' }, 400);
+    }
+    try {
+      if (!this.trips.renameGuest(id, parseInt(userId), name)) {
+        throw new HttpException({ error: 'Guest not found' }, 404);
+      }
+      return { success: true };
+    } catch (e: unknown) {
+      if (e instanceof HttpException) throw e;
+      if (e instanceof ValidationError) throw new HttpException({ error: e.message }, 400);
+      throw e;
+    }
+  }
+
+  @Delete(':id/guests/:userId')
+  deleteGuest(@CurrentUser() user: User, @Param('id') id: string, @Param('userId') userId: string) {
+    this.requireOwner(id, user);
+    if (!this.trips.deleteGuest(id, parseInt(userId))) {
+      throw new HttpException({ error: 'Guest not found' }, 404);
+    }
     return { success: true };
   }
 

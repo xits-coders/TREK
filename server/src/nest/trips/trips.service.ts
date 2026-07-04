@@ -11,6 +11,7 @@ import { listItems as listTodoItems } from '../../services/todoService';
 import { listBudgetItems } from '../../services/budgetService';
 import { listReservations } from '../../services/reservationService';
 import { listFiles } from '../../services/fileService';
+import { searchUnsplashPhotos } from '../../services/unsplashService';
 
 /**
  * Thin Nest wrapper around the existing trip service + the per-domain list
@@ -47,6 +48,10 @@ export class TripsService {
 
   getRaw(tripId: string) {
     return tripSvc.getTripRaw(tripId);
+  }
+
+  searchCoverImages(query: string) {
+    return searchUnsplashPhotos(query, 9);
   }
 
   getOwner(tripId: string) {
@@ -88,6 +93,22 @@ export class TripsService {
 
   removeMember(tripId: string, targetId: number): void {
     tripSvc.removeMember(tripId, targetId);
+  }
+
+  transferOwnership(tripId: string, newOwnerId: number, currentOwnerId: number) {
+    return tripSvc.transferOwnership(tripId, newOwnerId, currentOwnerId);
+  }
+
+  createGuest(tripId: string, name: string, invitedBy: number) {
+    return tripSvc.createGuest(tripId, name, invitedBy);
+  }
+
+  renameGuest(tripId: string, guestUserId: number, name: string): boolean {
+    return tripSvc.renameGuest(tripId, guestUserId, name);
+  }
+
+  deleteGuest(tripId: string, guestUserId: number): boolean {
+    return tripSvc.deleteGuest(tripId, guestUserId);
   }
 
   exportICS(tripId: string) {

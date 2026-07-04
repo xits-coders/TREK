@@ -58,6 +58,9 @@ const budget: TranslationStrings = {
   'costs.filter.all': 'Alle',
   'costs.filter.mine': 'Von mir bezahlt',
   'costs.filter.owed': 'Mir geschuldet',
+  'costs.filter.allCategories': 'Alle Kategorien',
+  'costs.filter.allDays': 'Alle Tage',
+  'costs.expensesCount': '{count} Ausgaben',
   'costs.addExpense': 'Ausgabe hinzufügen',
   'costs.editExpense': 'Ausgabe bearbeiten',
   'costs.noMatch': 'Keine Ausgaben passen zur Suche.',
@@ -116,6 +119,9 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Nur Gesamtsumme — noch nicht abgerechnet',
   'costs.tapToInclude': 'Zum Einbeziehen tippen',
   'costs.amount': 'Betrag',
+  'costs.split': "Aufteilen",
+  'costs.splitEqually': "Gleichmäßig",
+  'costs.splitCustom': "Individuell",
+  'costs.splitTicket': "Beleg",
 };
-
 export default budget;

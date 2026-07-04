@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Fehler beim Hinzufügen',
   'members.removed': 'Mitglied entfernt',
   'members.removeError': 'Fehler beim Entfernen',
+  'members.makeOwner': 'Zum Eigentümer machen',
+  'members.confirmTransfer': 'Eigentümerschaft an {name} übertragen? Du wirst zu einem normalen Mitglied.',
+  'members.transferError': 'Übertragung fehlgeschlagen',
+  'members.guests': 'Gäste',
+  'members.guest': 'Gast',
+  'members.guestsHint': 'Personen ohne Account. Sie können Kosten, Gepäck und Aufgaben zugewiesen bekommen, sich aber nicht anmelden.',
+  'members.addGuest': 'Gast hinzufügen',
+  'members.guestNamePlaceholder': 'Name des Gasts',
+  'members.guestAdded': 'Gast hinzugefügt',
+  'members.guestAddError': 'Gast konnte nicht hinzugefügt werden',
+  'members.guestRenameError': 'Gast konnte nicht umbenannt werden',
+  'members.guestRemoved': 'Gast entfernt',
+  'members.confirmRemoveGuest': 'Diesen Gast entfernen? Seine Zuweisungen und Kostenanteile werden ebenfalls entfernt.',
 };
 export default members;

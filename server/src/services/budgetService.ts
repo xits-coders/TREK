@@ -11,7 +11,7 @@ export { verifyTripAccess } from './tripAccess';
 
 function loadItemMembers(itemId: number | string) {
   const rows = db.prepare(`
-    SELECT bm.user_id, bm.paid, u.username, u.avatar
+    SELECT bm.user_id, bm.paid, bm.amount, u.username, u.avatar
     FROM budget_item_members bm
     JOIN users u ON bm.user_id = u.id
     WHERE bm.budget_item_id = ?
@@ -60,7 +60,7 @@ export function listBudgetItems(tripId: string | number) {
 
   if (itemIds.length > 0) {
     const allMembers = db.prepare(`
-      SELECT bm.budget_item_id, bm.user_id, bm.paid, u.username, u.avatar
+      SELECT bm.budget_item_id, bm.user_id, bm.paid, bm.amount, u.username, u.avatar
       FROM budget_item_members bm
       JOIN users u ON bm.user_id = u.id
       WHERE bm.budget_item_id IN (${itemIds.map(() => '?').join(',')})
@@ -69,7 +69,7 @@ export function listBudgetItems(tripId: string | number) {
     for (const m of allMembers) {
       if (!membersByItem[m.budget_item_id]) membersByItem[m.budget_item_id] = [];
       membersByItem[m.budget_item_id].push({
-        user_id: m.user_id, paid: m.paid, username: m.username, avatar_url: avatarUrl(m),
+        user_id: m.user_id, paid: m.paid, username: m.username, avatar_url: avatarUrl(m), amount: m.amount,
       });
     }
   }
@@ -104,6 +104,7 @@ export function createBudgetItem(
     category?: string; name: string; total_price?: number;
     currency?: string | null; exchange_rate?: number;
     payers?: { user_id: number; amount: number }[]; member_ids?: number[];
+    members?: { user_id: number; amount?: number | null }[];
     persons?: number | null; days?: number | null; note?: string | null; expense_date?: string | null;
     reservation_id?: number | null;
   },
@@ -147,8 +148,11 @@ export function createBudgetItem(
 
   const itemId = result.lastInsertRowid as number;
   if (data.payers && data.payers.length > 0) writeItemPayers(itemId, data.payers);
-  if (data.member_ids && data.member_ids.length > 0) {
-    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid) VALUES (?, ?, 0)');
+  if (data.members && data.members.length > 0) {
+    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid, amount) VALUES (?, ?, 0, ?)');
+    for (const m of data.members) insert.run(itemId, m.user_id, m.amount !== undefined && m.amount !== null ? m.amount : null);
+  } else if (data.member_ids && data.member_ids.length > 0) {
+    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid, amount) VALUES (?, ?, 0, NULL)');
     for (const uid of data.member_ids) insert.run(itemId, uid);
   }
 
@@ -185,6 +189,7 @@ export function updateBudgetItem(
     category?: string; name?: string; total_price?: number;
     currency?: string | null; exchange_rate?: number;
     payers?: { user_id: number; amount: number }[]; member_ids?: number[];
+    members?: { user_id: number; amount?: number | null }[];
     persons?: number | null; days?: number | null; note?: string | null; sort_order?: number; expense_date?: string | null;
   },
 ) {
@@ -228,9 +233,14 @@ export function updateBudgetItem(
       db.prepare('UPDATE budget_items SET total_price = ? WHERE id = ?').run(data.total_price, id);
     }
   }
-  if (data.member_ids !== undefined) {
+  if (data.members !== undefined) {
     db.prepare('DELETE FROM budget_item_members WHERE budget_item_id = ?').run(id);
-    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid) VALUES (?, ?, 0)');
+    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid, amount) VALUES (?, ?, 0, ?)');
+    for (const m of data.members) insert.run(id, m.user_id, m.amount !== undefined && m.amount !== null ? m.amount : null);
+    db.prepare('UPDATE budget_items SET persons = ? WHERE id = ?').run(data.members.length || null, id);
+  } else if (data.member_ids !== undefined) {
+    db.prepare('DELETE FROM budget_item_members WHERE budget_item_id = ?').run(id);
+    const insert = db.prepare('INSERT OR IGNORE INTO budget_item_members (budget_item_id, user_id, paid, amount) VALUES (?, ?, 0, NULL)');
     for (const uid of data.member_ids) insert.run(id, uid);
     db.prepare('UPDATE budget_items SET persons = ? WHERE id = ?').run(data.member_ids.length || null, id);
   }
@@ -323,8 +333,8 @@ export function toggleMemberPaid(id: string | number, tripId: string | number, u
 export function getPerPersonSummary(tripId: string | number) {
   const summary = db.prepare(`
     SELECT bm.user_id, u.username, u.avatar,
-      SUM(bi.total_price * 1.0 / (SELECT COUNT(*) FROM budget_item_members WHERE budget_item_id = bi.id)) as total_assigned,
-      SUM(CASE WHEN bm.paid = 1 THEN bi.total_price * 1.0 / (SELECT COUNT(*) FROM budget_item_members WHERE budget_item_id = bi.id) ELSE 0 END) as total_paid,
+      SUM(COALESCE(bm.amount, bi.total_price * 1.0 / (SELECT COUNT(*) FROM budget_item_members WHERE budget_item_id = bi.id))) as total_assigned,
+      SUM(CASE WHEN bm.paid = 1 THEN COALESCE(bm.amount, bi.total_price * 1.0 / (SELECT COUNT(*) FROM budget_item_members WHERE budget_item_id = bi.id)) ELSE 0 END) as total_paid,
       COUNT(bi.id) as items_count
     FROM budget_item_members bm
     JOIN budget_items bi ON bm.budget_item_id = bi.id
@@ -336,9 +346,26 @@ export function getPerPersonSummary(tripId: string | number) {
   return summary.map(s => ({ ...s, avatar_url: avatarUrl(s) }));
 }
 
-// ---------------------------------------------------------------------------
-// Settlement calculation (greedy debt matching)
-// ---------------------------------------------------------------------------
+export function splitEqualShares(total: number, members: { user_id: number }[], itemId: number): Record<number, number> {
+  const n = members.length;
+  if (n === 0) return {};
+
+  const totalCents = Math.round(total * 100);
+  const baseCents = Math.floor(totalCents / n);
+  const remainder = totalCents % n;
+
+  const shares: Record<number, number> = {};
+  const sortedMembers = [...members].sort((a, b) => a.user_id - b.user_id);
+  const startIndex = itemId % n;
+
+  for (let i = 0; i < n; i++) {
+    const member = sortedMembers[i];
+    const hasExtraCent = ((i - startIndex + n) % n) < remainder;
+    shares[member.user_id] = (baseCents + (hasExtraCent ? 1 : 0)) / 100;
+  }
+
+  return shares;
+}
 
 export function calculateSettlement(
   tripId: string | number,
@@ -347,22 +374,34 @@ export function calculateSettlement(
   const base = (opts.base || opts.tripCurrency || 'EUR').toUpperCase();
   const tripCurrency = (opts.tripCurrency || base).toUpperCase();
   const rates = opts.rates ?? null;
-  // Amount in some currency → base. Pre-rework rows store currency = NULL, which
-  // means "the trip's own currency". rates[X] = units of X per 1 base.
-  const toBase = (amount: number, itemCurrency: string | null | undefined, itemRate?: number | null): number => {
+  // Net the whole settlement in the trip's canonical currency and convert the final
+  // totals to the display currency once, instead of netting in the (moving) display
+  // currency. Otherwise per-expense rounding shifts as live FX drifts and the greedy
+  // debt-simplifier reshuffles it into phantom third-party micro-flows (#1382). When
+  // the display currency IS the trip currency (the common case) every conversion below
+  // is the identity, so behaviour is unchanged.
+  // rates[X] = units of X per 1 base; the frozen exchange_rate is units of item-currency
+  // per 1 trip-currency. Pre-rework rows store currency = NULL = "the trip's own currency".
+  const toTrip = (amount: number, itemCurrency: string | null | undefined, itemRate?: number | null): number => {
     const cur = (itemCurrency || tripCurrency).toUpperCase();
-    if (cur === base) return amount;
-    // Prefer the FX rate frozen at entry time (#1335): a settled expense keeps the rate it
-    // was booked at, so a later live-rate drift doesn't re-open it with a few-cent residual.
-    // The stored rate is units of item-currency per 1 trip-currency, so it only applies when
-    // converting to the trip's own currency; otherwise (and for legacy rows) use live rates.
-    if (base === tripCurrency && itemRate != null && itemRate > 0 && itemRate !== 1) {
-      return amount / itemRate;
-    }
+    if (cur === tripCurrency) return amount;
+    // Prefer the FX rate frozen at entry time (#1335): a settled expense keeps the rate
+    // it was booked at, so a later live-rate drift doesn't re-open it with a residual.
+    if (itemRate != null && itemRate > 0 && itemRate !== 1) return amount / itemRate;
+    // Legacy rows without a frozen rate: convert via base with live rates.
     if (!rates) return amount;
-    const r = rates[cur];
-    return r && r > 0 ? amount / r : amount;
+    const rCur = rates[cur];
+    const rTrip = rates[tripCurrency];
+    if (rCur && rCur > 0 && rTrip && rTrip > 0) return (amount / rCur) * rTrip;
+    return amount;
   };
+  // trip-currency → display currency, applied once to the final netted totals.
+  const toDisplay = (v: number): number =>
+    base === tripCurrency ? v : (rates && rates[tripCurrency] > 0 ? v / rates[tripCurrency] : v);
+  // A recorded settle-up amount is entered in whatever display currency the payer was
+  // viewing (the table has no currency column), so bring it into trip currency to net.
+  const settleToTrip = (v: number): number =>
+    base === tripCurrency ? v : (rates && rates[tripCurrency] > 0 ? v * rates[tripCurrency] : v);
 
   const items = db.prepare('SELECT * FROM budget_items WHERE trip_id = ?').all(tripId) as BudgetItem[];
   const allMembers = db.prepare(`
@@ -392,13 +431,19 @@ export function calculateSettlement(
     const payers = allPayers.filter(p => p.budget_item_id === item.id);
     if (members.length === 0) continue; // planning-only entry → doesn't affect balances
 
-    const paidBase = payers.reduce((a, p) => a + toBase(p.amount > 0 ? p.amount : 0, item.currency, item.exchange_rate), 0);
-    const sharePerMember = paidBase / members.length;
-
-    // Payers are credited what they actually paid (converted to base)…
-    for (const p of payers) ensure(p.user_id, p).balance += toBase(p.amount > 0 ? p.amount : 0, item.currency, item.exchange_rate);
-    // …and every split participant owes an equal share of the base total.
-    for (const m of members) ensure(m.user_id, m).balance -= sharePerMember;
+    // Payers are credited what they actually paid (converted to trip currency with
+    // the item's stored exchange rate)…
+    for (const p of payers) ensure(p.user_id, p).balance += toTrip(p.amount > 0 ? p.amount : 0, item.currency, item.exchange_rate);
+    // …and each split participant owes their share — a custom per-member amount
+    // when one is set, otherwise an equal share of the expense total.
+    const hasCustomSplit = members.some(m => m.amount !== null && m.amount !== undefined);
+    const equalShares = !hasCustomSplit ? splitEqualShares(item.total_price, members, item.id) : {};
+    for (const m of members) {
+      const memberShare = hasCustomSplit && m.amount !== null && m.amount !== undefined
+        ? toTrip(m.amount, item.currency, item.exchange_rate)
+        : toTrip(equalShares[m.user_id] || 0, item.currency, item.exchange_rate);
+      ensure(m.user_id, m).balance -= memberShare;
+    }
   }
 
   // Persisted settle-up transfers already moved money: the payer's debt shrinks,
@@ -412,8 +457,8 @@ export function calculateSettlement(
     return balances[id];
   };
   for (const s of settlements) {
-    ensureSettled(s.from_user_id, s.from_username, s.from_avatar_url).balance += s.amount;
-    ensureSettled(s.to_user_id, s.to_username, s.to_avatar_url).balance -= s.amount;
+    ensureSettled(s.from_user_id, s.from_username, s.from_avatar_url).balance += settleToTrip(s.amount);
+    ensureSettled(s.to_user_id, s.to_username, s.to_avatar_url).balance -= settleToTrip(s.amount);
   }
 
   // Calculate optimized payment flows (greedy algorithm)
@@ -434,7 +479,7 @@ export function calculateSettlement(
       flows.push({
         from: { user_id: debtors[di].user_id, username: debtors[di].username, avatar_url: debtors[di].avatar_url },
         to: { user_id: creditors[ci].user_id, username: creditors[ci].username, avatar_url: creditors[ci].avatar_url },
-        amount: Math.round(transfer * 100) / 100,
+        amount: Math.round(toDisplay(transfer) * 100) / 100,
       });
     }
     debtors[di].amount -= transfer;
@@ -444,7 +489,7 @@ export function calculateSettlement(
   }
 
   return {
-    balances: Object.values(balances).map(b => ({ ...b, balance: Math.round(b.balance * 100) / 100 })),
+    balances: Object.values(balances).map(b => ({ ...b, balance: Math.round(toDisplay(b.balance) * 100) / 100 })),
     flows,
     settlements,
   };

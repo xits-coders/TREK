@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Eklenemedi',
   'members.removed': 'Üye kaldırıldı',
   'members.removeError': 'Kaldırılamadı',
+  'members.makeOwner': 'Sahip yap',
+  'members.confirmTransfer': 'Sahipliği {name} kullanıcısına devret? Normal bir üye olacaksınız.',
+  'members.transferError': 'Sahiplik devredilemedi',
+  'members.guests': 'Misafirler',
+  'members.guest': 'Misafir',
+  'members.guestsHint': 'Hesabı olmayan kişiler. Masraflara, valize ve görevlere atanabilirler, ancak giriş yapamazlar.',
+  'members.addGuest': 'Misafir ekle',
+  'members.guestNamePlaceholder': 'Misafir adı',
+  'members.guestAdded': 'Misafir eklendi',
+  'members.guestAddError': 'Misafir eklenemedi',
+  'members.guestRenameError': 'Misafir yeniden adlandırılamadı',
+  'members.guestRemoved': 'Misafir kaldırıldı',
+  'members.confirmRemoveGuest': 'Bu misafir kaldırılsın mı? Atamaları ve masraf payları da kaldırılacak.',
 };
 export default members;

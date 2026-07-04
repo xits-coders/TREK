@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Nem sikerült hozzáadni',
   'members.removed': 'Tag eltávolítva',
   'members.removeError': 'Nem sikerült eltávolítani',
+  'members.makeOwner': 'Tulajdonossá tétel',
+  'members.confirmTransfer': 'Átruházza a tulajdonjogot {name} részére? Ön normál taggá válik.',
+  'members.transferError': 'A tulajdonjog átruházása sikertelen',
+  'members.guests': 'Vendégek',
+  'members.guest': 'Vendég',
+  'members.guestsHint': 'Fiók nélküli személyek. Hozzárendelhetők költségekhez, csomagoláshoz és feladatokhoz, de nem tudnak bejelentkezni.',
+  'members.addGuest': 'Vendég hozzáadása',
+  'members.guestNamePlaceholder': 'Vendég neve',
+  'members.guestAdded': 'Vendég hozzáadva',
+  'members.guestAddError': 'Nem sikerült hozzáadni a vendéget',
+  'members.guestRenameError': 'Nem sikerült átnevezni a vendéget',
+  'members.guestRemoved': 'Vendég eltávolítva',
+  'members.confirmRemoveGuest': 'Eltávolítja ezt a vendéget? A hozzárendelései és költségrészei is törlődnek.',
 };
 export default members;

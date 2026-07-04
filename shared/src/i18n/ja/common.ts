@@ -7,6 +7,7 @@ const common: TranslationStrings = {
   'common.cancel': 'キャンセル',
   'common.clear': 'クリア',
   'common.delete': '削除',
+  'common.preview': 'プレビュー',
   'common.edit': '編集',
   'common.add': '追加',
   'common.loading': '読み込み中…',
@@ -50,5 +51,17 @@ const common: TranslationStrings = {
   'common.collapse': '折りたたむ',
   'common.copy': 'コピー',
   'common.copied': 'コピーしました',
+  'common.datepicker.prevMonth': 'Previous month', // en-fallback
+  'common.datepicker.nextMonth': 'Next month', // en-fallback
+  'common.datepicker.prevYear': 'Previous year', // en-fallback
+  'common.datepicker.nextYear': 'Next year', // en-fallback
+  'common.datepicker.prevYears': 'Previous years', // en-fallback
+  'common.datepicker.nextYears': 'Next years', // en-fallback
+  'common.datepicker.selectMonth': 'Select month', // en-fallback
+  'common.datepicker.selectYear': 'Select year', // en-fallback
+  'common.datepicker.enterManually': 'Enter date manually', // en-fallback
+  'common.datepicker.typeDate': 'Type a date', // en-fallback
+  'common.datepicker.dialog': 'Date picker', // en-fallback
+  'common.datepicker.clearDate': 'Clear date', // en-fallback
 };
 export default common;

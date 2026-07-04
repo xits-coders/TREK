@@ -5,6 +5,7 @@ import { JWT_SECRET, SESSION_DURATION_SECONDS } from '../config';
 import { User } from '../types';
 import { decrypt_api_key } from './apiKeyCrypto';
 import { resolveAuthToggles } from './authService';
+import { joinTripAsMember } from './tripMembership';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,8 @@ export interface OidcUserInfo {
   email_verified?: boolean | string;
   name?: string;
   preferred_username?: string;
+  // Standard OIDC profile claim: URL of the user's profile picture.
+  picture?: string;
   groups?: string[];
   roles?: string[];
   [key: string]: unknown;
@@ -355,6 +358,17 @@ export async function verifyIdToken(
 // Find or create user by OIDC sub / email
 // ---------------------------------------------------------------------------
 
+// Sanitize the OIDC `picture` claim before we store it as the avatar. Only https
+// URLs are usable: the app's CSP allows https image sources but not http, and we
+// render the value directly. Non-strings, non-https and oversized values (e.g. a
+// large data: URI) are ignored so a user payload never carries junk. #1399
+function safeOidcPicture(picture: unknown): string | null {
+  if (typeof picture !== 'string') return null;
+  const url = picture.trim();
+  if (!url || url.length > 1024) return null;
+  return /^https:\/\//i.test(url) ? url : null;
+}
+
 export function findOrCreateUser(
   userInfo: OidcUserInfo,
   config: OidcConfig,
@@ -363,11 +377,13 @@ export function findOrCreateUser(
   const email = userInfo.email!.trim().toLowerCase();
   const name = userInfo.name || userInfo.preferred_username || email.split('@')[0];
   const sub = userInfo.sub;
+  const picture = safeOidcPicture(userInfo.picture);
 
   // Try to find existing user by sub, then by email
   let user = db.prepare('SELECT * FROM users WHERE oidc_sub = ? AND oidc_issuer = ?').get(sub, config.issuer) as User | undefined;
   if (!user) {
-    user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email) as User | undefined;
+    // Never link/log-in to a guest (#1362) via its synthetic email.
+    user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ? AND COALESCE(is_guest, 0) = 0').get(email) as User | undefined;
   }
 
   if (user) {
@@ -401,11 +417,19 @@ export function findOrCreateUser(
         }
       }
     }
+    // Keep the avatar in sync with the OIDC picture, but never clobber a custom
+    // upload: only fill it when empty or when the current value is itself an OIDC
+    // picture URL, so the picture refreshes on each login without overriding an
+    // uploaded one. #1399
+    if (picture && picture !== user.avatar && (!user.avatar || /^https:\/\//i.test(user.avatar))) {
+      db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(picture, user.id);
+      user = { ...user, avatar: picture } as User;
+    }
     return { user };
   }
 
   // --- New user registration ---
-  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users WHERE COALESCE(is_guest, 0) = 0').get() as { count: number }).count;
   const isFirstUser = userCount === 0;
 
   let validInvite: any = null;
@@ -450,12 +474,18 @@ export function findOrCreateUser(
         ).run(validInvite.id);
         if (updated.changes === 0) throw inviteRaceError;
       }
-      return db.prepare(
-        'INSERT INTO users (username, email, password_hash, role, oidc_sub, oidc_issuer, first_seen_version, login_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-      ).run(username, email, hash, role, sub, config.issuer, process.env.APP_VERSION || '0.0.0');
+      const ins = db.prepare(
+        'INSERT INTO users (username, email, password_hash, role, oidc_sub, oidc_issuer, avatar, first_seen_version, login_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
+      ).run(username, email, hash, role, sub, config.issuer, picture, process.env.APP_VERSION || '0.0.0');
+      // Trip-bound invite (#1402): auto-add the new SSO user to the trip inside the
+      // same atomic step as the invite consume. Idempotent + owner-safe.
+      if (validInvite?.trip_id) {
+        joinTripAsMember(Number(validInvite.trip_id), Number(ins.lastInsertRowid), validInvite.created_by ?? null);
+      }
+      return ins;
     });
     const result = createUser() as { lastInsertRowid: number | bigint };
-    user = { id: Number(result.lastInsertRowid), username, email, role } as User;
+    user = { id: Number(result.lastInsertRowid), username, email, role, avatar: picture } as User;
     return { user };
   } catch (err) {
     if (err === inviteRaceError) {

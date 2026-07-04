@@ -16,7 +16,7 @@ Open the **Budget** tab inside the trip planner. The tab is only visible when th
 
 ## Currency
 
-Use the currency picker in the Budget toolbar to select one currency for the entire trip. 46 currencies are supported (EUR, USD, GBP, JPY, CHF, CZK, PLN, SEK, NOK, DKK, TRY, THB, AUD, CAD, NZD, BRL, MXN, INR, IDR, MYR, PHP, SGD, KRW, CNY, HKD, TWD, ZAR, AED, SAR, ILS, EGP, MAD, HUF, RON, BGN, HRK, ISK, RUB, UAH, BDT, LKR, VND, CLP, COP, PEN, ARS). All amounts are displayed in this currency.
+Use the currency picker in the Budget toolbar to select one currency for the entire trip. 47 currencies are supported (EUR, USD, GBP, JPY, CHF, CZK, PLN, SEK, NOK, DKK, TRY, THB, AUD, CAD, NZD, BRL, MXN, INR, IDR, MYR, PHP, SGD, KRW, CNY, HKD, TWD, ZAR, AED, SAR, ILS, EGP, MAD, HUF, RON, BGN, HRK, ISK, RUB, UAH, KGS, BDT, LKR, VND, CLP, COP, PEN, ARS). All amounts are displayed in this currency.
 
 ## Categories
 
@@ -54,7 +54,12 @@ Add a new item using the inline **add row** at the bottom of each category table
 The **Persons** column behaves differently depending on the trip:
 
 - **Single-user trip** — enter a number of persons directly.
-- **Multi-member trip** — a member chip picker appears. Click the edit button to assign or remove members from an expense. Click an assigned member chip again to mark them as **paid** (the chip shows a green ring).
+- **Multi-member trip** — a member chip picker appears. Click the edit button to open the expense modal, where you can select:
+  - **Equally** — Splits the cost equally among selected members. Remainder cents (from rounding errors) are distributed deterministically and rotated using the item ID to ensure everyone is charged equally over the course of the trip.
+  - **Custom** — Enter specific custom amounts for each traveler. The sum of the custom splits must balance exactly to the total price.
+  - **Ticket** — Build an itemized list of expenses (e.g. Apples: $10, cake: $50, Milk: $40) and assign specific trip participants to split each individual item. Individual shares are calculated cent-perfectly, the total expense price is automatically summed, and the list of itemized splits is saved/restored across edits.
+
+Click an assigned member chip again to mark them as **paid** (the chip shows a green ring).
 
 ![Add Expense](assets/BudgetAddExpensive.gif)
 

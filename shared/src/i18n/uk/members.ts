@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Помилка додавання',
   'members.removed': 'Учасник видалений',
   'members.removeError': 'Помилка видалення',
+  'members.makeOwner': 'Призначити власником',
+  'members.confirmTransfer': 'Передати право власності користувачу {name}? Ви станете звичайним учасником.',
+  'members.transferError': 'Не вдалося передати право власності',
+  'members.guests': 'Гості',
+  'members.guest': 'Гість',
+  'members.guestsHint': 'Люди без облікового запису. Їм можна призначати витрати, речі та завдання, але вони не можуть увійти.',
+  'members.addGuest': 'Додати гостя',
+  'members.guestNamePlaceholder': 'Ім\'я гостя',
+  'members.guestAdded': 'Гостя додано',
+  'members.guestAddError': 'Не вдалося додати гостя',
+  'members.guestRenameError': 'Не вдалося перейменувати гостя',
+  'members.guestRemoved': 'Гостя видалено',
+  'members.confirmRemoveGuest': 'Видалити цього гостя? Його призначення та частки витрат також буде видалено.',
 };
 export default members;

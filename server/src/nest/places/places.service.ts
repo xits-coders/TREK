@@ -40,8 +40,8 @@ export class PlacesService {
     return svc.createPlace(tripId, data);
   }
 
-  update(tripId: string, id: string, data: Parameters<typeof svc.updatePlace>[2]) {
-    return svc.updatePlace(tripId, id, data);
+  update(tripId: string, id: string, data: Parameters<typeof svc.updatePlace>[2], ifMatch?: string) {
+    return svc.updatePlace(tripId, id, data, ifMatch);
   }
 
   remove(tripId: string, id: string): boolean {
@@ -50,6 +50,10 @@ export class PlacesService {
 
   removeMany(tripId: string, ids: number[]): number[] {
     return svc.deletePlacesMany(tripId, ids);
+  }
+
+  updateMany(tripId: string, ids: number[], data: Parameters<typeof svc.updatePlacesMany>[2]) {
+    return svc.updatePlacesMany(tripId, ids, data);
   }
 
   importGpx(

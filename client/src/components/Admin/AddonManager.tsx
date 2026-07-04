@@ -4,10 +4,11 @@ import { useTranslation } from '../../i18n'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useAddonStore } from '../../store/addonStore'
 import { useToast } from '../shared/Toast'
-import { Puzzle, ListChecks, Wallet, FileText, CalendarDays, Globe, Briefcase, Image, Terminal, Link2, Compass, BookOpen, MessageCircle, StickyNote, BarChart3, Sparkles, Luggage, Plane } from 'lucide-react'
+import { Puzzle, ListChecks, Wallet, FileText, CalendarDays, Globe, Briefcase, Image, Terminal, Link2, Compass, BookOpen, MessageCircle, StickyNote, BarChart3, Sparkles, Luggage, Plane, Server, Cloud, Bookmark } from 'lucide-react'
+import CustomSelect from '../shared/CustomSelect'
 
 const ICON_MAP = {
-  ListChecks, Wallet, FileText, CalendarDays, Puzzle, Globe, Briefcase, Image, Terminal, Link2, Compass, BookOpen, Plane,
+  ListChecks, Wallet, FileText, CalendarDays, Puzzle, Globe, Briefcase, Image, Terminal, Link2, Compass, BookOpen, Plane, Bookmark,
 }
 
 function ImmichIcon({ size = 14 }: { size?: number }) {
@@ -298,12 +299,236 @@ export default function AddonManager({ bagTrackingEnabled, onToggleBagTracking, 
                   </span>
                 </div>
                 {integrationAddons.map(addon => (
-                  <AddonRow key={addon.id} addon={addon} onToggle={handleToggle} t={t} />
+                  <div key={addon.id}>
+                    <AddonRow addon={addon} onToggle={handleToggle} t={t} />
+                    {addon.id === 'llm_parsing' && addon.enabled && (
+                      <LlmParsingConfig addon={addon} />
+                    )}
+                  </div>
                 ))}
               </div>
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+const MASKED = '••••••••'
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434/v1'
+
+/** Curated models the local extractor is tuned for, pullable via Ollama. The router drives
+ *  one model per document via Ollama's grammar-constrained `format`; "thinking" is disabled
+ *  automatically, so the Qwen3 family works without any tuning. A host only needs one. */
+const RECOMMENDED_MODELS: { id: string; label: string; note: string; recommended: boolean; vision: boolean }[] = [
+  { id: 'qwen3:8b', label: 'Qwen3 — 8B', note: 'Recommended · best extraction quality & speed on CPU (thinking auto-disabled) · Apache-2.0', recommended: true, vision: false },
+]
+
+/**
+ * Instance-wide AI-parsing config. When set, applies to the whole instance and
+ * overrides per-user config (see server llmConfig.ts). The API key is masked on
+ * read; an unchanged mask is treated as a no-op by the server. For the local
+ * provider, it also lists installed Ollama models and can pull NuExtract models.
+ */
+function LlmParsingConfig({ addon }: { addon: Addon }) {
+  const toast = useToast()
+  const cfg = (addon.config ?? {}) as Record<string, unknown>
+  const [provider, setProvider] = useState<string>((cfg.provider as string) ?? 'local')
+  const [model, setModel] = useState<string>((cfg.model as string) ?? '')
+  const [baseUrl, setBaseUrl] = useState<string>((cfg.baseUrl as string) ?? '')
+  const [apiKey, setApiKey] = useState<string>((cfg.apiKey as string) ?? '')
+  const [saving, setSaving] = useState(false)
+
+  // Local-provider model management.
+  const [installed, setInstalled] = useState<string[]>([])
+  const [modelsErr, setModelsErr] = useState('')
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [pulling, setPulling] = useState<string | null>(null)
+  const [pullPct, setPullPct] = useState(0)
+  const [pullStatus, setPullStatus] = useState('')
+
+  const effectiveUrl = baseUrl.trim() || DEFAULT_OLLAMA_URL
+  const isInstalled = (id: string) => installed.some(n => n === id || n.startsWith(id + ':') || n.startsWith(id))
+
+  const loadModels = async () => {
+    if (provider !== 'local') return
+    setLoadingModels(true)
+    setModelsErr('')
+    try {
+      const res = await adminApi.llmLocalModels(effectiveUrl)
+      setInstalled(res.models.map(m => m.name))
+    } catch (e: unknown) {
+      setModelsErr(e instanceof Error ? e.message : 'Could not reach the local LLM server')
+      setInstalled([])
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
+  // Load installed models when the local provider is active.
+  useEffect(() => {
+    if (provider === 'local') loadModels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider])
+
+  const pull = async (id: string) => {
+    if (pulling) return
+    setPulling(id)
+    setPullPct(0)
+    setPullStatus('starting…')
+    try {
+      await adminApi.llmLocalPull(effectiveUrl, id, (p) => {
+        if (p.error) throw new Error(p.error)
+        if (p.status) setPullStatus(p.status)
+        if (p.total && p.completed != null) setPullPct(Math.round((p.completed / p.total) * 100))
+      })
+      toast.success('Model pulled')
+      setModel(id)
+      await loadModels()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Pull failed')
+    } finally {
+      setPulling(null)
+      setPullPct(0)
+      setPullStatus('')
+    }
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      // Send the masked sentinel unchanged so the server keeps the stored key.
+      await adminApi.updateAddon(addon.id, { config: { provider, model: model.trim(), baseUrl: baseUrl.trim(), apiKey, multimodal: cfg.multimodal === true } })
+      toast.success('Saved')
+    } catch {
+      toast.error('Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fieldCls = 'w-full rounded-lg border border-edge-secondary bg-surface px-3 py-2 text-sm text-content placeholder:text-content-faint transition-colors focus:border-edge focus:outline-none'
+  const labelCls = 'mb-1.5 block text-xs font-medium text-content-secondary'
+  const sectionCls = 'text-[11px] font-semibold uppercase tracking-wide text-content-faint'
+
+  const providerOptions = [
+    { value: 'local', label: 'Local · OpenAI-compatible', icon: <Server size={14} />, badge: 'Ollama' },
+    { value: 'openai', label: 'OpenAI', icon: <Cloud size={14} /> },
+    { value: 'anthropic', label: 'Anthropic', icon: <Sparkles size={14} /> },
+  ]
+
+  return (
+    <div className="border-b border-edge-secondary bg-surface-secondary py-5 pr-6 pl-[70px]">
+      <div className="max-w-2xl space-y-6">
+        <p className="text-xs text-content-faint">
+          Set instance-wide config (applies to all users). Leave blank to let each user configure their own provider.
+        </p>
+
+        {/* Connection */}
+        <section className="space-y-3">
+          <div className={sectionCls}>Connection</div>
+          <div>
+            <span className={labelCls}>Provider</span>
+            <CustomSelect value={provider} onChange={v => setProvider(String(v))} options={providerOptions} />
+          </div>
+          {provider !== 'anthropic' && (
+            <label className="block">
+              <span className={labelCls}>Base URL</span>
+              <input type="url" autoComplete="off" className={fieldCls} value={baseUrl} onChange={e => setBaseUrl(e.target.value)} onBlur={loadModels} placeholder={provider === 'local' ? 'http://localhost:11434/v1' : 'https://api.openai.com/v1'} />
+            </label>
+          )}
+          <label className="block">
+            <span className={labelCls}>API key</span>
+            <input type="password" className={fieldCls} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={apiKey === MASKED ? MASKED : provider === 'local' ? '(often not required)' : 'sk-…'} />
+          </label>
+          {provider === 'anthropic' && (
+            <p className="text-xs text-content-faint">Anthropic reads PDFs (including scans) natively. Local/OpenAI models receive extracted text — scanned PDFs need Anthropic.</p>
+          )}
+        </section>
+
+        {/* Model */}
+        <section className="space-y-3">
+          <div className={sectionCls}>Model</div>
+          <label className="block">
+            <input autoComplete="off" className={fieldCls} value={model} onChange={e => setModel(e.target.value)} placeholder={provider === 'anthropic' ? 'claude-opus-4-8' : provider === 'openai' ? 'gpt-4o' : 'select or pull below'} />
+          </label>
+
+          {/* Local model management (Ollama) */}
+          {provider === 'local' && (
+            <div className="space-y-3 rounded-lg border border-edge-secondary bg-surface p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-content-secondary">Installed on the server</span>
+                <button onClick={loadModels} disabled={loadingModels} className="text-xs text-content-muted underline disabled:opacity-60">
+                  {loadingModels ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+              {modelsErr && <p className="text-xs text-rose-600">{modelsErr}</p>}
+              {!modelsErr && installed.length === 0 && !loadingModels && (
+                <p className="text-xs text-content-faint">No models installed yet — pull one below.</p>
+              )}
+              {installed.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {installed.map(name => (
+                    <button
+                      key={name}
+                      title={name}
+                      onClick={() => setModel(name)}
+                      className={`max-w-full truncate rounded-full border px-2.5 py-1 text-xs transition-colors ${model === name ? 'border-transparent bg-accent text-accent-text' : 'border-edge-secondary text-content-secondary hover:border-edge'}`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="border-t border-edge-secondary pt-3">
+                <div className="mb-2 text-xs font-medium text-content-secondary">Pull a recommended model</div>
+                <div className="space-y-1">
+                  {RECOMMENDED_MODELS.map(m => {
+                    const installedHere = isInstalled(m.id)
+                    const isPulling = pulling === m.id
+                    const active = model === m.id
+                    return (
+                      <div key={m.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${active ? 'border-edge-secondary bg-surface-secondary' : 'border-transparent'}`}>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-content">{m.label}</span>
+                            {m.recommended && (
+                              <span className="rounded-md bg-[rgba(16,185,129,0.15)] px-1.5 py-px text-[10px] font-semibold text-emerald-600">Recommended</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-content-faint">{m.note}</div>
+                          {isPulling && (
+                            <div className="mt-1.5">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-tertiary">
+                                <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${pullPct}%` }} />
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-content-faint">{pullStatus}{pullPct ? ` · ${pullPct}%` : ''}</div>
+                            </div>
+                          )}
+                        </div>
+                        {installedHere ? (
+                          <button onClick={() => setModel(m.id)} disabled={active} className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'bg-surface-tertiary text-content-muted' : 'border border-edge-secondary text-content-secondary hover:border-edge'}`}>
+                            {active ? 'Selected' : 'Use'}
+                          </button>
+                        ) : (
+                          <button onClick={() => pull(m.id)} disabled={!!pulling} className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-text disabled:opacity-60">
+                            {isPulling ? 'Pulling…' : 'Pull'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <button onClick={save} disabled={saving} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-opacity disabled:opacity-60">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
       </div>
     </div>
   )

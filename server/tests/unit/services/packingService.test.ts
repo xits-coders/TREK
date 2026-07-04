@@ -42,6 +42,14 @@ import {
   createBag,
   deleteBag,
   bulkImport,
+  createItem,
+  updateItem,
+  deleteItem,
+  listItems,
+  setItemSharing,
+  addContributor,
+  removeContributor,
+  cloneItem,
 } from '../../../src/services/packingService';
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -297,5 +305,175 @@ describe('bulkImport with quantity field', () => {
     expect(byName('Toothbrush').quantity).toBe(1);
     expect(byName('Batteries').quantity).toBe(999);
     expect(byName('Charger').quantity).toBe(1);
+  });
+});
+
+// ── Private items (#858) ──────────────────────────────────────────────────────
+
+describe('private items (#858)', () => {
+  it('PACK-SVC-014: createItem stamps the owner and is_private flag', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+
+    const shared = createItem(trip.id, { name: 'Tent' }, user.id) as any;
+    const secret = createItem(trip.id, { name: 'Gift', is_private: true }, user.id) as any;
+
+    expect(shared.is_private).toBe(0);
+    expect(shared.owner_id).toBe(user.id);
+    expect(secret.is_private).toBe(1);
+    expect(secret.owner_id).toBe(user.id);
+  });
+
+  it('PACK-SVC-015: listItems hides another member\'s private items but shows the owner theirs', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: other } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+
+    createItem(trip.id, { name: 'Shared' }, owner.id);
+    createItem(trip.id, { name: 'Private', is_private: true }, owner.id);
+
+    const ownerView = listItems(trip.id, owner.id) as any[];
+    const otherView = listItems(trip.id, other.id) as any[];
+    const unscoped = listItems(trip.id) as any[];
+
+    expect(ownerView.map(i => i.name).sort()).toEqual(['Private', 'Shared']);
+    expect(otherView.map(i => i.name)).toEqual(['Shared']);
+    // Without a viewer (internal callers) nothing is filtered.
+    expect(unscoped).toHaveLength(2);
+  });
+
+  it('PACK-SVC-016: updateItem toggles privacy and claims an unowned item for the actor', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+
+    // Legacy-style row with no owner.
+    const id = Number((testDb.prepare('INSERT INTO packing_items (trip_id, name, checked, sort_order) VALUES (?, ?, 0, 0)').run(trip.id, 'Legacy') as any).lastInsertRowid);
+
+    const updated = updateItem(trip.id, id, { is_private: true }, ['is_private'], undefined, user.id) as any;
+    expect(updated.is_private).toBe(1);
+    expect(updated.owner_id).toBe(user.id);
+
+    const back = updateItem(trip.id, id, { is_private: false }, ['is_private'], undefined, user.id) as any;
+    expect(back.is_private).toBe(0);
+    // Ownership is retained once claimed.
+    expect(back.owner_id).toBe(user.id);
+  });
+
+  it('PACK-SVC-017: deleteItem returns the removed row (with privacy fields)', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    const item = createItem(trip.id, { name: 'Private', is_private: true }, user.id) as any;
+
+    const deleted = deleteItem(trip.id, item.id) as any;
+    expect(deleted).not.toBeNull();
+    expect(deleted.is_private).toBe(1);
+    expect(deleted.owner_id).toBe(user.id);
+    expect(deleteItem(trip.id, item.id)).toBeNull();
+  });
+
+  it('PACK-SVC-018: bulkImport stamps the owner on every item', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+
+    bulkImport(trip.id, [{ name: 'A' }, { name: 'B', is_private: true }], user.id);
+    const rows = testDb.prepare('SELECT * FROM packing_items WHERE trip_id = ? ORDER BY name').all(trip.id) as any[];
+    expect(rows.every(r => r.owner_id === user.id)).toBe(true);
+    expect(rows.find(r => r.name === 'B').is_private).toBe(1);
+    expect(rows.find(r => r.name === 'A').is_private).toBe(0);
+  });
+});
+
+// ── Three-tier sharing (#858 follow-up) ───────────────────────────────────────
+
+describe('three-tier packing sharing (#858)', () => {
+  const names = (rows: any[]) => rows.map(r => r.name).sort();
+
+  it('PACK-SVC-040: existing/common items are visible to everyone (non-breaking)', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: other } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    // A legacy-style row written directly (is_private defaults 0) = Common.
+    testDb.prepare('INSERT INTO packing_items (trip_id, name, checked, sort_order) VALUES (?, ?, 0, 0)').run(trip.id, 'Tent');
+    createItem(trip.id, { name: 'Stove', visibility: 'common' }, owner.id);
+
+    expect(names(listItems(trip.id, owner.id) as any[])).toEqual(['Stove', 'Tent']);
+    expect(names(listItems(trip.id, other.id) as any[])).toEqual(['Stove', 'Tent']);
+  });
+
+  it('PACK-SVC-041: a Shared item is visible to its owner + recipients only, marked with the bringer', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: friend } = createUser(testDb);
+    const { user: stranger } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+
+    const item = createItem(trip.id, { name: 'Power bank', visibility: 'shared', recipient_ids: [friend.id] }, owner.id) as any;
+    expect(item.is_private).toBe(1);
+    expect(item.owner_username).toBe(owner.username);
+    expect(item.recipients.map((r: any) => r.user_id)).toEqual([friend.id]);
+
+    expect(names(listItems(trip.id, owner.id) as any[])).toEqual(['Power bank']);   // bringer
+    expect(names(listItems(trip.id, friend.id) as any[])).toEqual(['Power bank']);  // covered person
+    expect(names(listItems(trip.id, stranger.id) as any[])).toEqual([]);            // nobody else
+  });
+
+  it('PACK-SVC-042: a Personal item is visible only to its owner', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: other } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    createItem(trip.id, { name: 'Diary', visibility: 'personal' }, owner.id);
+    expect(names(listItems(trip.id, owner.id) as any[])).toEqual(['Diary']);
+    expect(names(listItems(trip.id, other.id) as any[])).toEqual([]);
+  });
+
+  it('PACK-SVC-043: setItemSharing changes the tier + recipients; only the owner may', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: friend } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const item = createItem(trip.id, { name: 'First aid', visibility: 'personal' }, owner.id) as any;
+
+    // A non-owner is rejected.
+    expect((setItemSharing(trip.id, item.id, friend.id, 'shared', [friend.id]) as any).forbidden).toBe(true);
+
+    const updated = setItemSharing(trip.id, item.id, owner.id, 'shared', [friend.id]) as any;
+    expect(updated.recipients.map((r: any) => r.user_id)).toEqual([friend.id]);
+    expect(names(listItems(trip.id, friend.id) as any[])).toEqual(['First aid']);
+
+    // Back to common → visible to everyone, recipients cleared.
+    setItemSharing(trip.id, item.id, owner.id, 'common', []);
+    const { user: stranger } = createUser(testDb);
+    expect(names(listItems(trip.id, stranger.id) as any[])).toEqual(['First aid']);
+  });
+
+  it('PACK-SVC-044: contributors ("I can bring that too") only attach to Common items', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: helper } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const common = createItem(trip.id, { name: 'Sunscreen', visibility: 'common' }, owner.id) as any;
+    const personal = createItem(trip.id, { name: 'Meds', visibility: 'personal' }, owner.id) as any;
+
+    const withHelper = addContributor(trip.id, common.id, helper.id) as any;
+    expect(withHelper.contributors.map((c: any) => c.user_id)).toEqual([helper.id]);
+    // The bringer can't co-contribute to their own item, and personal items have no pool.
+    expect(addContributor(trip.id, common.id, owner.id)).toBeNull();
+    expect(addContributor(trip.id, personal.id, helper.id)).toBeNull();
+
+    const cleared = removeContributor(trip.id, common.id, helper.id) as any;
+    expect(cleared.contributors).toEqual([]);
+  });
+
+  it('PACK-SVC-045: cloneItem copies an item onto the cloner\'s personal list', () => {
+    const { user: owner } = createUser(testDb);
+    const { user: cloner } = createUser(testDb);
+    const trip = createTrip(testDb, owner.id);
+    const common = createItem(trip.id, { name: 'Travel adapter', category: 'Electronics', visibility: 'common' }, owner.id) as any;
+
+    const clone = cloneItem(trip.id, common.id, cloner.id) as any;
+    expect(clone.name).toBe('Travel adapter');
+    expect(clone.category).toBe('Electronics');
+    expect(clone.is_private).toBe(1);
+    expect(clone.owner_id).toBe(cloner.id);
+    // The clone is the cloner's alone.
+    expect(names(listItems(trip.id, owner.id) as any[])).toEqual(['Travel adapter']);     // owner sees only the common one
+    expect(names(listItems(trip.id, cloner.id) as any[])).toEqual(['Travel adapter', 'Travel adapter']); // common + own clone
   });
 });

@@ -30,7 +30,6 @@ Thumbs.db
 sonar-project.properties
 server/tests/
 server/vitest.config.ts
-server/reset-admin.js
 **/*.test.ts
 **/*.spec.ts
 wiki/

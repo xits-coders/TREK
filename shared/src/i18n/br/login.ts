@@ -84,5 +84,8 @@ const login: TranslationStrings = {
   'login.resetPasswordFailed': 'Falha na redefinição. O link pode ter expirado.',
   'login.passkey.signIn': 'Entrar com uma passkey',
   'login.passkey.failed': 'Falha ao entrar com passkey. Tente novamente.',
+  'login.insecureCookie.title': "Login won't stick over HTTP",
+  'login.insecureCookie.body': "You’re connecting over plain HTTP, so your browser drops TREK’s secure session cookie — the next request fails with \"Access token required\". Fix: use HTTPS, or for a home-lab set COOKIE_SECURE=false.",
+  'login.insecureCookie.link': "Open the Troubleshooting guide",
 };
 export default login;

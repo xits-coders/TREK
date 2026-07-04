@@ -115,6 +115,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': '僅計入總額 — 尚未結算',
   'costs.tapToInclude': '點按以加入',
   'costs.amount': '金額',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': '所有類別',
+  'costs.filter.allDays': '所有日期',
+  'costs.expensesCount': '{count} 筆支出',
 };
-
 export default budget;

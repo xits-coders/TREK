@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': '新增失敗',
   'members.removed': '成員已移除',
   'members.removeError': '移除失敗',
+  'members.makeOwner': '設為擁有者',
+  'members.confirmTransfer': '將擁有權轉移給 {name}？你將成為一般成員。',
+  'members.transferError': '轉移擁有權失敗',
+  'members.guests': '訪客',
+  'members.guest': '訪客',
+  'members.guestsHint': '沒有帳號的人。可以為其指派費用、行李和任務，但他們無法登入。',
+  'members.addGuest': '新增訪客',
+  'members.guestNamePlaceholder': '訪客姓名',
+  'members.guestAdded': '已新增訪客',
+  'members.guestAddError': '新增訪客失敗',
+  'members.guestRenameError': '重新命名訪客失敗',
+  'members.guestRemoved': '已移除訪客',
+  'members.confirmRemoveGuest': '移除此訪客？其指派和費用分攤也將被移除。',
 };
 export default members;

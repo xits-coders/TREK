@@ -18,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { User } from '../../types';
 import { PlacesService } from './places.service';
+import { isUpdateConflict } from '../../services/conflictResult';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 
@@ -225,6 +226,36 @@ export class PlacesController {
     return { deleted, count: deleted.length };
   }
 
+  @Post('bulk-update')
+  @HttpCode(200)
+  bulkUpdate(
+    @CurrentUser() user: User,
+    @Param('tripId') tripId: string,
+    @Body() body: { ids?: unknown; category_id?: unknown },
+    @Headers('x-socket-id') socketId?: string,
+  ) {
+    const trip = this.requireTrip(tripId, user);
+    this.requireEdit(trip, user);
+    const { ids } = body;
+    if (!Array.isArray(ids) || ids.some((v) => typeof v !== 'number')) {
+      throw new HttpException({ error: 'ids must be an array of numbers' }, 400);
+    }
+    if (ids.length === 0) {
+      return { updated: [], count: 0 };
+    }
+    // `category_id` may be a number or null (null clears it), so key presence —
+    // not truthiness — is what signals there's something to change.
+    if (!('category_id' in body)) {
+      throw new HttpException({ error: 'Provide at least one field to update' }, 400);
+    }
+    const updated = this.places.updateMany(tripId, ids, { category_id: body.category_id as number | null });
+    for (const place of updated) {
+      this.places.broadcast(tripId, 'place:updated', { place }, socketId);
+      this.places.onUpdated(place.id);
+    }
+    return { updated: updated.map((p) => p.id), count: updated.length };
+  }
+
   @Get(':id')
   get(@CurrentUser() user: User, @Param('tripId') tripId: string, @Param('id') id: string) {
     this.requireTrip(tripId, user);
@@ -258,14 +289,21 @@ export class PlacesController {
     @Param('id') id: string,
     @Body() body: Record<string, unknown>,
     @Headers('x-socket-id') socketId?: string,
+    @Headers('x-base-updated-at') ifMatch?: string,
   ) {
     const trip = this.requireTrip(tripId, user);
     validateLengths(body);
     this.requireEdit(trip, user);
-    const place = this.places.update(tripId, id, body as never);
-    if (!place) {
+    const result = this.places.update(tripId, id, body as never, ifMatch);
+    if (!result) {
       throw new HttpException({ error: 'Place not found' }, 404);
     }
+    // The offline edit was based on a now-stale version — let the client resolve
+    // it (#1135) instead of silently overwriting the newer server state.
+    if (isUpdateConflict(result)) {
+      throw new HttpException({ error: 'conflict', server: result.server }, 409);
+    }
+    const place = result;
     this.places.broadcast(tripId, 'place:updated', { place }, socketId);
     this.places.onUpdated(place.id);
     return { place };

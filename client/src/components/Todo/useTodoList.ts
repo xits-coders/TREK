@@ -15,7 +15,7 @@ import type { FilterType, Member } from './todoListModel'
  * (TodoRow) and the detail/new panes from this state.
  */
 export function useTodoList(tripId: number, items: TodoItem[], addItemSignal: number) {
-  const { addTodoItem, updateTodoItem, deleteTodoItem, toggleTodoItem } = useTripStore()
+  const { addTodoItem, updateTodoItem, deleteTodoItem, toggleTodoItem, reorderTodoItems } = useTripStore()
   const trip = useTripStore((s) => s.trip)
   const can = useCanDo()
   const canEdit = can('packing_edit', trip)
@@ -100,7 +100,7 @@ export function useTodoList(tripId: number, items: TodoItem[], addItemSignal: nu
   const catCount = (cat: string) => items.filter(i => i.category === cat && !i.checked).length
 
   return {
-    canEdit, t, formatDate, toggleTodoItem,
+    canEdit, t, formatDate, toggleTodoItem, reorderTodoItems,
     isMobile, filter, setFilter, selectedId, setSelectedId,
     isAddingNew, setIsAddingNew, sortByPrio, setSortByPrio,
     addingCategory, setAddingCategory, newCategoryName, setNewCategoryName,

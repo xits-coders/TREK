@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': '추가 실패',
   'members.removed': '멤버가 제거되었습니다',
   'members.removeError': '제거 실패',
+  'members.makeOwner': '소유자로 지정',
+  'members.confirmTransfer': '{name}님에게 소유권을 이전하시겠습니까? 일반 멤버가 됩니다.',
+  'members.transferError': '소유권 이전 실패',
+  'members.guests': '게스트',
+  'members.guest': '게스트',
+  'members.guestsHint': '계정이 없는 사람입니다. 비용, 짐, 할 일에 배정할 수 있지만 로그인할 수 없습니다.',
+  'members.addGuest': '게스트 추가',
+  'members.guestNamePlaceholder': '게스트 이름',
+  'members.guestAdded': '게스트가 추가되었습니다',
+  'members.guestAddError': '게스트 추가 실패',
+  'members.guestRenameError': '게스트 이름 변경 실패',
+  'members.guestRemoved': '게스트가 제거되었습니다',
+  'members.confirmRemoveGuest': '이 게스트를 제거할까요? 배정 및 비용 분담도 함께 제거됩니다.',
 };
 export default members;

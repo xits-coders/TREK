@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Falha ao adicionar',
   'members.removed': 'Membro removido',
   'members.removeError': 'Falha ao remover',
+  'members.makeOwner': 'Tornar proprietário',
+  'members.confirmTransfer': 'Transferir a propriedade para {name}? Você se tornará um membro comum.',
+  'members.transferError': 'Falha ao transferir a propriedade',
+  'members.guests': 'Convidados',
+  'members.guest': 'Convidado',
+  'members.guestsHint': 'Pessoas sem conta. Podem ser atribuídas a custos, bagagem e tarefas, mas não podem entrar.',
+  'members.addGuest': 'Adicionar convidado',
+  'members.guestNamePlaceholder': 'Nome do convidado',
+  'members.guestAdded': 'Convidado adicionado',
+  'members.guestAddError': 'Falha ao adicionar convidado',
+  'members.guestRenameError': 'Falha ao renomear convidado',
+  'members.guestRemoved': 'Convidado removido',
+  'members.confirmRemoveGuest': 'Remover este convidado? As atribuições e os custos dele também serão removidos.',
 };
 export default members;

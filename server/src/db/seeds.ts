@@ -15,8 +15,21 @@ function isOidcOnlyConfigured(): boolean {
 
 function seedAdminAccount(db: Database.Database): void {
   try {
+    const env_admin_email = process.env.ADMIN_EMAIL;
+    const env_admin_pw = process.env.ADMIN_PASSWORD;
+    const adminEnvProvided = !!(env_admin_email || env_admin_pw);
+
     const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
-    if (userCount > 0) return;
+    if (userCount > 0) {
+      // ADMIN_EMAIL/ADMIN_PASSWORD only take effect on the first run (empty database). Once a
+      // user exists they are silently ignored — a common trip-up: people add the vars after the
+      // fact, restart, nothing changes, and there is no hint why. Say so instead of staying silent.
+      if (adminEnvProvided) {
+        console.warn('[admin] ADMIN_EMAIL/ADMIN_PASSWORD are set, but users already exist — these only apply on first run (empty database) and are being ignored.');
+        console.warn('[admin] Change an existing password from Settings after signing in, reset the admin (see the Troubleshooting wiki), or start with an empty data volume to re-run setup.');
+      }
+      return;
+    }
 
     // Demo mode seeds its own admin (admin@trek.app, username 'admin') right after this.
     // Creating a first-run admin here would grab username 'admin' first and make the demo
@@ -35,15 +48,18 @@ function seedAdminAccount(db: Database.Database): void {
 
     const bcrypt = require('bcryptjs');
 
-    const env_admin_email = process.env.ADMIN_EMAIL;
-    const env_admin_pw = process.env.ADMIN_PASSWORD;
-
-    let password;
-    let email;
+    let password: string;
+    let email: string;
     if (env_admin_email && env_admin_pw) {
       password = env_admin_pw;
       email = env_admin_email;
     } else {
+      // A partial config (only one of the two) is an easy mistake: neither value is used and a
+      // generated password is created instead. Flag it so the chosen credentials silently not
+      // working isn't a surprise.
+      if (adminEnvProvided) {
+        console.warn('[admin] Only one of ADMIN_EMAIL/ADMIN_PASSWORD is set — both are required for a custom admin. Falling back to admin@trek.local with a generated password (shown below).');
+      }
       password = crypto.randomBytes(12).toString('base64url');
       email = 'admin@trek.local';
     }
@@ -104,6 +120,8 @@ function seedAddons(db: Database.Database): void {
       { id: 'collab', name: 'Collab', description: 'Notes, polls, and live chat for trip collaboration', type: 'trip', icon: 'Users', enabled: 1, sort_order: 6 },
       { id: 'journey', name: 'Journey', description: 'Trip tracking & travel journal — check-ins, photos, daily stories', type: 'global', icon: 'Compass', enabled: 0, sort_order: 35 },
       { id: 'airtrail', name: 'AirTrail', description: 'Sync flights from your self-hosted AirTrail instance', type: 'integration', icon: 'Plane', enabled: 0, sort_order: 14 },
+      { id: 'llm_parsing', name: 'AI Parsing', description: 'LLM fallback for booking imports kitinerary cannot read', type: 'integration', icon: 'Sparkles', enabled: 0, sort_order: 15 },
+      { id: 'collections', name: 'Collections', description: 'Personal place library — save places across trips into named lists, copy into any trip, share with others', type: 'global', icon: 'Bookmark', enabled: 0, sort_order: 16 },
     ];
     const insertAddon = db.prepare('INSERT OR IGNORE INTO addons (id, name, description, type, icon, enabled, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const a of defaultAddons) insertAddon.run(a.id, a.name, a.description, a.type, a.icon, a.enabled, a.sort_order);
@@ -154,4 +172,4 @@ function runSeeds(db: Database.Database): void {
   seedAddons(db);
 }
 
-export { runSeeds };
+export { runSeeds, seedAdminAccount };

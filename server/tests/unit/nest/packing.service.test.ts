@@ -18,6 +18,7 @@ const { pk } = vi.hoisted(() => ({
     bulkImport: vi.fn(), listBags: vi.fn(), createBag: vi.fn(), updateBag: vi.fn(), deleteBag: vi.fn(),
     listTemplates: vi.fn(), applyTemplate: vi.fn(), saveAsTemplate: vi.fn(), setBagMembers: vi.fn(), getCategoryAssignees: vi.fn(),
     updateCategoryAssignees: vi.fn(), reorderItems: vi.fn(),
+    setItemSharing: vi.fn(), addContributor: vi.fn(), removeContributor: vi.fn(), cloneItem: vi.fn(),
   },
 }));
 vi.mock('../../../src/services/packingService', () => pk);
@@ -44,14 +45,37 @@ describe('PackingService (wrapper delegation + helpers)', () => {
     expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock');
   });
 
+  describe('broadcastItem (private-item scoping, #858)', () => {
+    it('broadcasts a shared item to the whole room (no onlyUserId)', () => {
+      svc().broadcastItem('5', 'packing:created', { item: 1 }, { is_private: 0, owner_id: 7 }, 'sock');
+      expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock', undefined);
+    });
+
+    it('scopes a private item to its owner', () => {
+      svc().broadcastItem('5', 'packing:created', { item: 1 }, { is_private: 1, owner_id: 7 }, 'sock');
+      expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock', 7);
+    });
+
+    it('falls back to a room broadcast when the private item has no owner', () => {
+      svc().broadcastItem('5', 'packing:created', { item: 1 }, { is_private: 1, owner_id: null }, 'sock');
+      expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock', undefined);
+    });
+  });
+
+  it('getItemPrivacy reads the privacy fields for an item', () => {
+    dbMock._stmt.get.mockReturnValueOnce({ is_private: 1, owner_id: 3 });
+    expect(svc().getItemPrivacy('5', '9')).toEqual({ is_private: 1, owner_id: 3 });
+    expect(dbMock.prepare).toHaveBeenCalledWith(expect.stringContaining('is_private, owner_id'));
+  });
+
   it('forwards every item/bag/template/assignee call to the legacy service', () => {
     const s = svc();
     s.verifyTripAccess('5', 1); expect(pk.verifyTripAccess).toHaveBeenCalledWith('5', 1);
-    s.listItems('5'); expect(pk.listItems).toHaveBeenCalledWith('5');
-    s.createItem('5', { name: 'a' }); expect(pk.createItem).toHaveBeenCalledWith('5', { name: 'a' });
-    s.updateItem('5', '2', { name: 'b' } as never, ['name']); expect(pk.updateItem).toHaveBeenCalledWith('5', '2', { name: 'b' }, ['name']);
+    s.listItems('5'); expect(pk.listItems).toHaveBeenCalledWith('5', undefined);
+    s.createItem('5', { name: 'a' }); expect(pk.createItem).toHaveBeenCalledWith('5', { name: 'a' }, undefined);
+    s.updateItem('5', '2', { name: 'b' } as never, ['name']); expect(pk.updateItem).toHaveBeenCalledWith('5', '2', { name: 'b' }, ['name'], undefined, undefined);
     s.deleteItem('5', '2'); expect(pk.deleteItem).toHaveBeenCalledWith('5', '2');
-    s.bulkImport('5', [{ name: 'x' }] as never); expect(pk.bulkImport).toHaveBeenCalledWith('5', [{ name: 'x' }]);
+    s.bulkImport('5', [{ name: 'x' }] as never); expect(pk.bulkImport).toHaveBeenCalledWith('5', [{ name: 'x' }], undefined);
     s.reorderItems('5', [3, 1] as never); expect(pk.reorderItems).toHaveBeenCalledWith('5', [3, 1]);
     s.listBags('5'); expect(pk.listBags).toHaveBeenCalledWith('5');
     s.createBag('5', { name: 'Bag' }); expect(pk.createBag).toHaveBeenCalledWith('5', { name: 'Bag' });
@@ -63,6 +87,25 @@ describe('PackingService (wrapper delegation + helpers)', () => {
     s.saveAsTemplate('5', 1, 'Tpl'); expect(pk.saveAsTemplate).toHaveBeenCalledWith('5', 1, 'Tpl');
     s.getCategoryAssignees('5'); expect(pk.getCategoryAssignees).toHaveBeenCalledWith('5');
     s.updateCategoryAssignees('5', 'Clothes', [2]); expect(pk.updateCategoryAssignees).toHaveBeenCalledWith('5', 'Clothes', [2]);
+    s.setItemSharing('5', '2', 1, 'shared', [3]); expect(pk.setItemSharing).toHaveBeenCalledWith('5', '2', 1, 'shared', [3]);
+    s.addContributor('5', '2', 3); expect(pk.addContributor).toHaveBeenCalledWith('5', '2', 3);
+    s.removeContributor('5', '2', 3); expect(pk.removeContributor).toHaveBeenCalledWith('5', '2', 3);
+    s.cloneItem('5', '2', 7); expect(pk.cloneItem).toHaveBeenCalledWith('5', '2', 7);
+  });
+
+  describe('viewersOf + broadcastToViewers (#858 three-tier)', () => {
+    it('viewersOf: Common → null (whole room); restricted → owner + recipients', () => {
+      expect(svc().viewersOf({ is_private: 0, owner_id: 1 })).toBeNull();
+      expect(svc().viewersOf(null)).toBeNull();
+      expect(svc().viewersOf({ is_private: 1, owner_id: 1, recipients: [{ user_id: 2 }, { user_id: 3 }] })).toEqual([1, 2, 3]);
+    });
+
+    it('broadcastToViewers delivers to each viewer (deduped) via onlyUserId', () => {
+      svc().broadcastToViewers('5', 'packing:created', { item: 1 }, [1, 2, 2], 'sock');
+      expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock', 1);
+      expect(broadcast).toHaveBeenCalledWith('5', 'packing:created', { item: 1 }, 'sock', 2);
+      expect(broadcast).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('notifyTagged', () => {

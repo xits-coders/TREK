@@ -1,9 +1,11 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Marker, Polyline, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { Plane, Train, Ship, Car, Bus, Sailboat, Bike, CarTaxiFront, Route } from 'lucide-react'
+import { Plane, Train, Ship, Car, Bus, Sailboat, Bike, CarTaxiFront, Route, TramFront } from 'lucide-react'
 import { escapeHtml } from '@trek/shared'
+import { getTransitMapSegments, type TransitMapSegment } from './transitGeometry'
+import { geodesicArcs } from './flightGeodesy'
 import { useSettingsStore } from '../../store/settingsStore'
 import type { Reservation, ReservationEndpoint } from '../../types'
 
@@ -11,8 +13,8 @@ const ENDPOINT_PANE = 'reservation-endpoints'
 const AIRPORT_BADGE_HALF_PX = 16
 const BADGE_GAP_PX = 5
 
-type TransportType = 'flight' | 'train' | 'cruise' | 'car' | 'bus' | 'taxi' | 'bicycle' | 'ferry' | 'transport_other'
-const TRANSPORT_TYPES: TransportType[] = ['flight', 'train', 'cruise', 'car', 'bus', 'taxi', 'bicycle', 'ferry', 'transport_other']
+type TransportType = 'flight' | 'train' | 'cruise' | 'car' | 'bus' | 'taxi' | 'bicycle' | 'ferry' | 'transit' | 'transport_other'
+const TRANSPORT_TYPES: TransportType[] = ['flight', 'train', 'cruise', 'car', 'bus', 'taxi', 'bicycle', 'ferry', 'transit', 'transport_other']
 
 const TRANSPORT_COLOR = '#3b82f6'
 
@@ -25,6 +27,7 @@ const TYPE_META: Record<TransportType, { color: string; icon: typeof Plane; geod
   taxi: { color: TRANSPORT_COLOR, icon: CarTaxiFront, geodesic: false },
   bicycle: { color: TRANSPORT_COLOR, icon: Bike, geodesic: false },
   ferry: { color: TRANSPORT_COLOR, icon: Sailboat, geodesic: true },
+  transit: { color: TRANSPORT_COLOR, icon: TramFront, geodesic: false },
   transport_other: { color: TRANSPORT_COLOR, icon: Route, geodesic: false },
 }
 
@@ -62,41 +65,6 @@ function endpointIcon(type: TransportType, label: string | null): L.DivIcon {
 }
 
 function toRad(d: number) { return d * Math.PI / 180 }
-function toDeg(r: number) { return r * 180 / Math.PI }
-
-function greatCircle(a: [number, number], b: [number, number], steps = 256): [number, number][] {
-  const [lat1, lng1] = [toRad(a[0]), toRad(a[1])]
-  const [lat2, lng2] = [toRad(b[0]), toRad(b[1])]
-  const d = 2 * Math.asin(Math.sqrt(Math.sin((lat2 - lat1) / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin((lng2 - lng1) / 2) ** 2))
-  if (d === 0) return [a, b]
-  const pts: [number, number][] = []
-  for (let i = 0; i <= steps; i++) {
-    const f = i / steps
-    const A = Math.sin((1 - f) * d) / Math.sin(d)
-    const B = Math.sin(f * d) / Math.sin(d)
-    const x = A * Math.cos(lat1) * Math.cos(lng1) + B * Math.cos(lat2) * Math.cos(lng2)
-    const y = A * Math.cos(lat1) * Math.sin(lng1) + B * Math.cos(lat2) * Math.sin(lng2)
-    const z = A * Math.sin(lat1) + B * Math.sin(lat2)
-    const lat = Math.atan2(z, Math.sqrt(x * x + y * y))
-    const lng = Math.atan2(y, x)
-    pts.push([toDeg(lat), toDeg(lng)])
-  }
-  return pts
-}
-
-function splitAntimeridian(points: [number, number][]): [number, number][][] {
-  const segments: [number, number][][] = []
-  let cur: [number, number][] = []
-  for (let i = 0; i < points.length; i++) {
-    if (i > 0 && Math.abs(points[i][1] - points[i - 1][1]) > 180) {
-      if (cur.length > 1) segments.push(cur)
-      cur = []
-    }
-    cur.push(points[i])
-  }
-  if (cur.length > 1) segments.push(cur)
-  return segments
-}
 
 function cleanName(name: string): string {
   return name.replace(/\s*\([^)]*\)/g, '').trim()
@@ -161,6 +129,7 @@ interface TransportItem {
   waypoints: ReservationEndpoint[]
   type: TransportType
   arcs: [number, number][][]
+  transitSegs: TransitMapSegment[]
   primaryArc: [number, number][]
   fallback: [number, number]
   mainLabel: string | null
@@ -339,16 +308,19 @@ interface Props {
   showConnections: boolean
   showStats: boolean
   onEndpointClick?: (reservationId: number) => void
+  // Real road-network geometry for car/bus/taxi/bicycle bookings, keyed by
+  // reservation id. When present it is drawn instead of the straight arc.
+  roadRoutes?: Map<number, [number, number][]>
 }
 
-export default function ReservationOverlay({ reservations, showConnections, showStats, onEndpointClick }: Props) {
+export default function ReservationOverlay({ reservations, showConnections, showStats, onEndpointClick, roadRoutes }: Props) {
   useEndpointPane()
   const map = useMap()
   const [zoom, setZoom] = useState(() => map.getZoom())
   useMapEvents({
     zoomend: () => setZoom(map.getZoom()),
   })
-  const showEndpointLabels = useSettingsStore(s => s.settings.map_booking_labels) !== false
+  const showEndpointLabels = useSettingsStore(s => s.settings.map_booking_labels) === true
 
   const items = useMemo<TransportItem[]>(() => {
     const out: TransportItem[] = []
@@ -372,7 +344,7 @@ export default function ReservationOverlay({ reservations, showConnections, show
         const a = waypoints[i]
         const b = waypoints[i + 1]
         const segArcs = isGeo
-          ? splitAntimeridian(greatCircle([a.lat, a.lng], [b.lat, b.lng]))
+          ? geodesicArcs([a.lat, a.lng], [b.lat, b.lng], true)
           : [[[a.lat, a.lng], [b.lat, b.lng]] as [number, number][]]
         arcs.push(...segArcs)
         distanceKm += haversineKm([a.lat, a.lng], [b.lat, b.lng])
@@ -392,7 +364,7 @@ export default function ReservationOverlay({ reservations, showConnections, show
       const subParts = [duration, distance].filter(Boolean) as string[]
       const subLabel = subParts.length > 0 ? subParts.join(' · ') : null
 
-      out.push({ res: r, from, to, waypoints, type, arcs, primaryArc, fallback, mainLabel, subLabel })
+      out.push({ res: r, from, to, waypoints, type, arcs, transitSegs: type === 'transit' ? getTransitMapSegments(r) : [], primaryArc, fallback, mainLabel, subLabel })
     }
     return out
   }, [reservations])
@@ -411,7 +383,7 @@ export default function ReservationOverlay({ reservations, showConnections, show
     for (const item of visibleItems) {
       const fromPx = map.latLngToContainerPoint([item.from.lat, item.from.lng])
       const toPx = map.latLngToContainerPoint([item.to.lat, item.to.lng])
-      const minPx = item.type === 'flight' ? 50 : item.type === 'cruise' ? 300 : item.type === 'car' ? 150 : 400
+      const minPx = item.type === 'flight' ? 50 : item.type === 'cruise' ? 300 : item.type === 'car' ? 150 : item.type === 'transit' ? 900 : 400
       if (fromPx.distanceTo(toPx) >= minPx) set.add(item.res.id)
     }
     return set
@@ -421,18 +393,41 @@ export default function ReservationOverlay({ reservations, showConnections, show
 
   return (
     <>
-      {visibleItems.map(item => item.arcs.map((seg, segIdx) => (
-        <Polyline
-          key={`line-${item.res.id}-${segIdx}`}
-          positions={seg}
-          pathOptions={{
-            color: TYPE_META[item.type].color,
-            weight: 2.5,
-            opacity: item.res.status === 'confirmed' ? 0.75 : 0.55,
-            dashArray: item.res.status === 'confirmed' ? undefined : '6, 6',
-          }}
-        />
-      )))}
+      {visibleItems.map(item => {
+        if (item.transitSegs.length > 0) {
+          return item.transitSegs.map((seg, segIdx) => (
+            <Fragment key={`transit-${item.res.id}-${segIdx}`}>
+              {!seg.walk && (
+                <Polyline
+                  positions={seg.coords}
+                  pathOptions={{ color: '#ffffff', weight: 6, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }}
+                />
+              )}
+              <Polyline
+                positions={seg.coords}
+                pathOptions={seg.walk
+                  ? { color: '#64748b', weight: 3, opacity: 0.8, dashArray: '1, 7', lineCap: 'round' }
+                  : { color: seg.color || TYPE_META.transit.color, weight: 3.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+              />
+            </Fragment>
+          ))
+        }
+        // Prefer the real road route (car/bus/taxi/bicycle) over the straight arc.
+        const road = roadRoutes?.get(item.res.id)
+        const lines = road && road.length >= 2 ? [road] : item.arcs
+        return lines.map((seg, segIdx) => (
+          <Polyline
+            key={`line-${item.res.id}-${segIdx}`}
+            positions={seg}
+            pathOptions={{
+              color: TYPE_META[item.type].color,
+              weight: 2.5,
+              opacity: item.res.status === 'confirmed' ? 0.75 : 0.55,
+              dashArray: item.res.status === 'confirmed' ? undefined : '6, 6',
+            }}
+          />
+        ))
+      })}
 
       {visibleItems.flatMap(item => item.waypoints.map((wp, wi) => (
         <Marker

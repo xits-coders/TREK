@@ -16,5 +16,6 @@ const nav: TranslationStrings = {
   'nav.bottomAdmin': 'Ρυθμίσεις Διαχειριστή',
   'nav.bottomLogout': 'Αποσύνδεση',
   'nav.bottomAdminBadge': 'Διαχειριστής',
+  'nav.help': 'Help',
 };
 export default nav;

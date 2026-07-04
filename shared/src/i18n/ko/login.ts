@@ -83,5 +83,8 @@ const login: TranslationStrings = {
   'login.resetPasswordFailed': '재설정 실패. 링크가 만료되었을 수 있습니다.',
   'login.passkey.signIn': '패스키로 로그인',
   'login.passkey.failed': '패스키 로그인에 실패했습니다. 다시 시도하세요.',
+  'login.insecureCookie.title': "Login won't stick over HTTP",
+  'login.insecureCookie.body': "You’re connecting over plain HTTP, so your browser drops TREK’s secure session cookie — the next request fails with \"Access token required\". Fix: use HTTPS, or for a home-lab set COOKIE_SECURE=false.",
+  'login.insecureCookie.link': "Open the Troubleshooting guide",
 };
 export default login;

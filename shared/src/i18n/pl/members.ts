@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Nie udało się dodać członka',
   'members.removed': 'Usunięto członka',
   'members.removeError': 'Nie udało się usunąć członka',
+  'members.makeOwner': 'Ustaw jako właściciela',
+  'members.confirmTransfer': 'Przekazać własność użytkownikowi {name}? Staniesz się zwykłym członkiem.',
+  'members.transferError': 'Nie udało się przekazać własności',
+  'members.guests': 'Goście',
+  'members.guest': 'Gość',
+  'members.guestsHint': 'Osoby bez konta. Można im przypisać koszty, pakowanie i zadania, ale nie mogą się zalogować.',
+  'members.addGuest': 'Dodaj gościa',
+  'members.guestNamePlaceholder': 'Imię gościa',
+  'members.guestAdded': 'Dodano gościa',
+  'members.guestAddError': 'Nie udało się dodać gościa',
+  'members.guestRenameError': 'Nie udało się zmienić nazwy gościa',
+  'members.guestRemoved': 'Usunięto gościa',
+  'members.confirmRemoveGuest': 'Usunąć tego gościa? Jego przypisania i udziały w kosztach również zostaną usunięte.',
 };
 export default members;

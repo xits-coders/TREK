@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Yalnızca toplamda — henüz ödenmedi',
   'costs.tapToInclude': 'Eklemek için dokun',
   'costs.amount': 'Tutar',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Tüm kategoriler',
+  'costs.filter.allDays': 'Tüm günler',
+  'costs.expensesCount': '{count} harcama',
 };
-
 export default budget;

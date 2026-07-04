@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': 'Αποτυχία προσθήκης',
   'members.removed': 'Το μέλος αφαιρέθηκε',
   'members.removeError': 'Αποτυχία αφαίρεσης',
+  'members.makeOwner': 'Ορισμός ως κάτοχο',
+  'members.confirmTransfer': 'Μεταβίβαση ιδιοκτησίας στον/στην {name}; Θα γίνετε απλό μέλος.',
+  'members.transferError': 'Αποτυχία μεταβίβασης ιδιοκτησίας',
+  'members.guests': 'Επισκέπτες',
+  'members.guest': 'Επισκέπτης',
+  'members.guestsHint': 'Άτομα χωρίς λογαριασμό. Μπορούν να ανατεθούν σε έξοδα, αποσκευές και εργασίες, αλλά δεν μπορούν να συνδεθούν.',
+  'members.addGuest': 'Προσθήκη επισκέπτη',
+  'members.guestNamePlaceholder': 'Όνομα επισκέπτη',
+  'members.guestAdded': 'Ο επισκέπτης προστέθηκε',
+  'members.guestAddError': 'Αποτυχία προσθήκης επισκέπτη',
+  'members.guestRenameError': 'Αποτυχία μετονομασίας επισκέπτη',
+  'members.guestRemoved': 'Ο επισκέπτης αφαιρέθηκε',
+  'members.confirmRemoveGuest': 'Αφαίρεση αυτού του επισκέπτη; Θα αφαιρεθούν επίσης οι αναθέσεις και τα μερίδια εξόδων του.',
 };
 export default members;

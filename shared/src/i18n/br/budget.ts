@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Apenas no total — ainda não acertado',
   'costs.tapToInclude': 'Toque para incluir',
   'costs.amount': 'Valor',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Todas as categorias',
+  'costs.filter.allDays': 'Todos os dias',
+  'costs.expensesCount': '{count} despesas',
 };
-
 export default budget;

@@ -116,6 +116,12 @@ const budget: TranslationStrings = {
   'costs.unfinishedHint': 'Csak az összegben — még nincs rendezve',
   'costs.tapToInclude': 'Koppintson a hozzáadáshoz',
   'costs.amount': 'Összeg',
+  'costs.split': "Split",
+  'costs.splitEqually': "Equally",
+  'costs.splitCustom': "Custom",
+  'costs.splitTicket': "Ticket",
+  'costs.filter.allCategories': 'Összes kategória',
+  'costs.filter.allDays': 'Összes nap',
+  'costs.expensesCount': '{count} kiadás',
 };
-
 export default budget;

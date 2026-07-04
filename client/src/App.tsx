@@ -2,7 +2,10 @@ import React, { useEffect, ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { useSettingsStore } from './store/settingsStore'
+import { applyAppearance } from './theme/applyAppearance'
 import { useAddonStore } from './store/addonStore'
+import { usePluginStore } from './store/pluginStore'
+import PluginPage from './pages/PluginPage'
 import LoginPage from './pages/LoginPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -12,14 +15,19 @@ import FilesPage from './pages/FilesPage'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
 import VacayPage from './pages/VacayPage'
+import HelpPage from './pages/HelpPage'
 import AtlasPage from './pages/AtlasPage'
 import JourneyPage from './pages/JourneyPage'
 import JourneyDetailPage from './pages/JourneyDetailPage'
+import CollectionsPage from './pages/CollectionsPage'
 import JourneyPublicPage from './pages/JourneyPublicPage'
 import SharedTripPage from './pages/SharedTripPage'
+import JoinTripPage from './pages/JoinTripPage'
 import InAppNotificationsPage from './pages/InAppNotificationsPage.tsx'
 import OAuthAuthorizePage from './pages/OAuthAuthorizePage'
 import { ToastContainer } from './components/shared/Toast'
+import SaveToCollectionModal from './components/Collections/SaveToCollectionModal'
+import BackgroundTasksWidget from './components/BackgroundTasks/BackgroundTasksWidget'
 import BottomNav from './components/Layout/BottomNav'
 import { TranslationProvider, useTranslation } from './i18n'
 import { authApi } from './api/client'
@@ -105,6 +113,7 @@ export default function App() {
   const { loadUser, isAuthenticated, demoMode, setDemoMode, setDevMode, setIsPrerelease, setAppVersion, setHasMapsKey, setServerTimezone, setAppRequireMfa, setTripRemindersEnabled, setPlacesPhotosEnabled, setPlacesAutocompleteEnabled, setPlacesDetailsEnabled } = useAuthStore()
   const { loadSettings } = useSettingsStore()
   const { loadAddons } = useAddonStore()
+  const { loadPlugins } = usePluginStore()
 
   useEffect(() => {
     if (!location.pathname.startsWith('/shared/') && !location.pathname.startsWith('/public/') && !location.pathname.startsWith('/login')) {
@@ -162,6 +171,7 @@ export default function App() {
     if (isAuthenticated) {
       loadSettings()
       loadAddons()
+      loadPlugins()
     }
   }, [isAuthenticated])
 
@@ -174,30 +184,21 @@ export default function App() {
   const isSharedPage = location.pathname.startsWith('/shared/')
 
   useEffect(() => {
-    // Shared page always forces light mode
-    if (isSharedPage) {
-      document.documentElement.classList.remove('dark')
-      const meta = document.querySelector('meta[name="theme-color"]')
-      if (meta) meta.setAttribute('content', '#ffffff')
-      return
-    }
-
-    const mode = settings.dark_mode
-    const applyDark = (isDark: boolean) => {
-      document.documentElement.classList.toggle('dark', isDark)
-      const meta = document.querySelector('meta[name="theme-color"]')
-      if (meta) meta.setAttribute('content', isDark ? '#09090b' : '#ffffff')
-    }
-
-    if (mode === 'auto') {
+    const run = () =>
+      applyAppearance({
+        darkMode: settings.dark_mode,
+        appearance: settings.appearance,
+        isSharedPage,
+      })
+    run()
+    // Re-resolve on OS theme change while in auto mode.
+    if (!isSharedPage && settings.dark_mode === 'auto') {
       const mq = window.matchMedia('(prefers-color-scheme: dark)')
-      applyDark(mq.matches)
-      const handler = (e: MediaQueryListEvent) => applyDark(e.matches)
+      const handler = () => run()
       mq.addEventListener('change', handler)
       return () => mq.removeEventListener('change', handler)
     }
-    applyDark(mode === true || mode === 'dark')
-  }, [settings.dark_mode, isSharedPage])
+  }, [settings.dark_mode, settings.appearance, isSharedPage])
 
   const isAuthPage = location.pathname.startsWith('/login')
     || location.pathname.startsWith('/register')
@@ -208,6 +209,8 @@ export default function App() {
     <TranslationProvider>
       {!isAuthPage && <SystemNoticeHost />}
       <ToastContainer />
+      {!isAuthPage && <BackgroundTasksWidget />}
+      {!isAuthPage && <SaveToCollectionModal />}
       <OfflineBanner />
       <Routes>
         <Route path="/" element={<RootRedirect />} />
@@ -224,6 +227,32 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* Trip invite link (#1143) — behind ProtectedRoute so an anonymous
+            visitor is redirected to /login (never registration) and returns here. */}
+        <Route
+          path="/join/:token"
+          element={
+            <ProtectedRoute>
+              <JoinTripPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/help"
+          element={
+            <ProtectedRoute>
+              <HelpPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/help/:slug"
+          element={
+            <ProtectedRoute>
+              <HelpPage />
             </ProtectedRoute>
           }
         />
@@ -260,6 +289,14 @@ export default function App() {
           }
         />
         <Route
+          path="/plugins/:pluginId"
+          element={
+            <ProtectedRoute>
+              <PluginPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/vacay"
           element={
             <ProtectedRoute>
@@ -288,6 +325,22 @@ export default function App() {
           element={
             <ProtectedRoute addonId="journey">
               <JourneyDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/collections"
+          element={
+            <ProtectedRoute addonId="collections">
+              <CollectionsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/collections/:id"
+          element={
+            <ProtectedRoute addonId="collections">
+              <CollectionsPage />
             </ProtectedRoute>
           }
         />

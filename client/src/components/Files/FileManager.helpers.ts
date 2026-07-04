@@ -1,4 +1,4 @@
-import { FileText, FileImage, File, Plane, Train, Car, Ship, Bus, Sailboat, Bike, CarTaxiFront, Route } from 'lucide-react'
+import { FileText, FileImage, File, FileVideo, Plane, Train, Car, Ship, Bus, Sailboat, Bike, CarTaxiFront, Route } from 'lucide-react'
 import { downloadFile } from '../../utils/fileDownload'
 
 export function isImage(mimeType?: string | null) {
@@ -6,9 +6,30 @@ export function isImage(mimeType?: string | null) {
   return mimeType.startsWith('image/')
 }
 
+export function isVideo(mimeType?: string | null) {
+  return !!mimeType && mimeType.startsWith('video/')
+}
+
+/** Image or video — the file types that open in the media lightbox (#823). */
+export function isMedia(mimeType?: string | null) {
+  return isImage(mimeType) || isVideo(mimeType)
+}
+
+/**
+ * Markdown file (#1345). Detected by EXTENSION first — browsers often send an
+ * empty / octet-stream / text/plain MIME for .md — falling back to the markdown
+ * MIME types.
+ */
+export function isMarkdown(mimeType?: string | null, name?: string | null) {
+  const ext = (name || '').toLowerCase().split('.').pop()
+  if (ext === 'md' || ext === 'markdown') return true
+  return !!mimeType && (mimeType === 'text/markdown' || mimeType === 'text/x-markdown')
+}
+
 export function getFileIcon(mimeType?: string | null) {
   if (!mimeType) return File
   if (mimeType === 'application/pdf') return FileText
+  if (isVideo(mimeType)) return FileVideo
   if (isImage(mimeType)) return FileImage
   return File
 }

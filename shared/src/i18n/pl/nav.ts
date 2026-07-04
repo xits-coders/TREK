@@ -16,5 +16,6 @@ const nav: TranslationStrings = {
   'nav.bottomAdmin': 'Ustawienia administratora',
   'nav.bottomLogout': 'Wyloguj się',
   'nav.bottomAdminBadge': 'Administrator',
+  'nav.help': 'Help',
 };
 export default nav;

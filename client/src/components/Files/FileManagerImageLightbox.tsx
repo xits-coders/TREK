@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { ExternalLink, Download, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ExternalLink, Download, X, ChevronLeft, ChevronRight, Play } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import type { TripFile } from '../../types'
 import { getAuthUrl } from '../../api/authUrl'
 import { openFile as openFileUrl } from '../../utils/fileDownload'
-import { triggerDownload } from './FileManager.helpers'
+import { triggerDownload, isVideo } from './FileManager.helpers'
+import VideoPlayer from '../Journey/VideoPlayer'
 
 // Image lightbox with gallery navigation
 interface ImageLightboxProps {
@@ -20,10 +21,14 @@ export function ImageLightbox({ files, initialIndex, onClose }: ImageLightboxPro
   const [touchStart, setTouchStart] = useState<number | null>(null)
   const file = files[index]
 
+  const fileIsVideo = isVideo(file?.mime_type)
+
   useEffect(() => {
     setImgSrc('')
-    if (file) getAuthUrl(file.url, 'download').then(setImgSrc)
-  }, [file?.url])
+    // Images use a one-shot signed URL; a video must use the plain same-origin
+    // URL (cookie auth) so its many Range requests all authenticate (#823).
+    if (file && !isVideo(file.mime_type)) getAuthUrl(file.url, 'download').then(setImgSrc)
+  }, [file?.url, file?.mime_type])
 
   const goPrev = () => setIndex(i => Math.max(0, i - 1))
   const goNext = () => setIndex(i => Math.min(files.length - 1, i + 1))
@@ -71,7 +76,7 @@ export function ImageLightbox({ files, initialIndex, onClose }: ImageLightboxPro
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+        <span style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))', color: 'rgba(255,255,255,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
           {file.original_name}
           <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.4)' }}>{index + 1} / {files.length}</span>
         </span>
@@ -98,7 +103,13 @@ export function ImageLightbox({ files, initialIndex, onClose }: ImageLightboxPro
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 0 }}
         onClick={e => { if (e.target === e.currentTarget) onClose() }}>
         {navBtn('left', goPrev, hasPrev)}
-        {imgSrc && <img src={imgSrc} alt={file.original_name} style={{ maxWidth: '85vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8, display: 'block' }} onClick={e => e.stopPropagation()} />}
+        {fileIsVideo ? (
+          <div onClick={e => e.stopPropagation()}>
+            <VideoPlayer src={file.url} style={{ maxWidth: '85vw', maxHeight: '80vh', borderRadius: 8 }} />
+          </div>
+        ) : (
+          imgSrc && <img src={imgSrc} alt={file.original_name} style={{ maxWidth: '85vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8, display: 'block' }} onClick={e => e.stopPropagation()} />
+        )}
         {navBtn('right', goNext, hasNext)}
       </div>
 
@@ -115,14 +126,20 @@ export function ImageLightbox({ files, initialIndex, onClose }: ImageLightboxPro
 }
 
 function ThumbImg({ file, active, onClick }: { file: TripFile & { url: string }; active: boolean; onClick: () => void }) {
+  const fileIsVideo = isVideo(file.mime_type)
   const [src, setSrc] = useState('')
-  useEffect(() => { getAuthUrl(file.url, 'download').then(setSrc) }, [file.url])
+  // Videos have no stored thumbnail and can't render as an <img>; show a play
+  // placeholder and don't mint a download token for them (#823).
+  useEffect(() => { if (!fileIsVideo) getAuthUrl(file.url, 'download').then(setSrc) }, [file.url, fileIsVideo])
   return (
     <button onClick={onClick} style={{
       width: 48, height: 48, borderRadius: 6, overflow: 'hidden', border: active ? '2px solid #fff' : '2px solid transparent',
       opacity: active ? 1 : 0.5, cursor: 'pointer', padding: 0, background: '#111', flexShrink: 0, transition: 'opacity 0.15s',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.7)',
     }}>
-      {src && <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+      {fileIsVideo
+        ? <Play size={16} fill="currentColor" />
+        : (src && <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />)}
     </button>
   )
 }

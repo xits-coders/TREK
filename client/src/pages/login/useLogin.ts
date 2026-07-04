@@ -41,6 +41,9 @@ export function useLogin() {
   const [showPassword, setShowPassword] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
+  // Set when the server signals it just issued a Secure cookie over plain HTTP —
+  // the browser drops it, so we explain the fix instead of a bare 401 later.
+  const [insecureCookie, setInsecureCookie] = useState(false)
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null)
   const [inviteToken, setInviteToken] = useState<string>('')
   const [inviteValid, setInviteValid] = useState<boolean>(false)
@@ -225,6 +228,7 @@ export function useLogin() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault()
     setError('')
+    setInsecureCookie(false)
     setIsLoading(true)
     try {
       if (passwordChangeStep) {
@@ -260,6 +264,13 @@ export function useLogin() {
         await register(username, email, password, inviteToken || undefined)
       } else {
         const result = await login(email, password, rememberMe)
+        if ((result as { insecureCookie?: boolean }).insecureCookie) {
+          // Credentials were correct, but the secure cookie won't survive plain
+          // HTTP — proceeding would just dead-end on "Access token required".
+          setInsecureCookie(true)
+          setIsLoading(false)
+          return
+        }
         if ('mfa_required' in result && result.mfa_required && 'mfa_token' in result) {
           setMfaToken(result.mfa_token)
           setMfaStep(true)
@@ -291,7 +302,7 @@ export function useLogin() {
     navigate,
     mode, setMode,
     username, setUsername, email, setEmail, password, setPassword, rememberMe, setRememberMe, showPassword, setShowPassword,
-    isLoading, error, setError, appConfig, inviteToken,
+    isLoading, error, setError, insecureCookie, appConfig, inviteToken,
     langDropdownOpen, setLangDropdownOpen, setLanguageLocal,
     showTakeoff, mfaStep, setMfaStep, mfaToken, setMfaToken, mfaCode, setMfaCode,
     passwordChangeStep, newPassword, setNewPassword, confirmPassword, setConfirmPassword,

@@ -17,6 +17,8 @@ const { tripSvc } = vi.hoisted(() => ({
     listTrips: vi.fn(), createTrip: vi.fn(), getTrip: vi.fn(), updateTrip: vi.fn(), deleteTrip: vi.fn(),
     getTripRaw: vi.fn(), getTripOwner: vi.fn(), deleteOldCover: vi.fn(), updateCoverImage: vi.fn(),
     listMembers: vi.fn(() => ({ owner: { id: 1 }, members: [] })), addMember: vi.fn(), removeMember: vi.fn(),
+    transferOwnership: vi.fn(),
+    createGuest: vi.fn(), renameGuest: vi.fn(), deleteGuest: vi.fn(),
     exportICS: vi.fn(), copyTripById: vi.fn(), TRIP_SELECT: 'SELECT * FROM trips t',
   },
 }));
@@ -50,6 +52,10 @@ describe('TripsService (wrapper delegation + bundle/copy/notify helpers)', () =>
     s.listMembers('9', 1); expect(tripSvc.listMembers).toHaveBeenCalledWith('9', 1);
     s.addMember('9', 'b@x.y', 1, 1); expect(tripSvc.addMember).toHaveBeenCalledWith('9', 'b@x.y', 1, 1);
     s.removeMember('9', 2); expect(tripSvc.removeMember).toHaveBeenCalledWith('9', 2);
+    s.transferOwnership('9', 2, 1); expect(tripSvc.transferOwnership).toHaveBeenCalledWith('9', 2, 1);
+    s.createGuest('9', 'Anna', 1); expect(tripSvc.createGuest).toHaveBeenCalledWith('9', 'Anna', 1);
+    s.renameGuest('9', 7, 'Bob'); expect(tripSvc.renameGuest).toHaveBeenCalledWith('9', 7, 'Bob');
+    s.deleteGuest('9', 7); expect(tripSvc.deleteGuest).toHaveBeenCalledWith('9', 7);
     s.exportICS('9'); expect(tripSvc.exportICS).toHaveBeenCalledWith('9');
   });
 

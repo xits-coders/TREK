@@ -19,6 +19,9 @@ export interface User {
   must_change_password?: number | boolean;
   first_seen_version?: string;
   login_count?: number;
+  // Guest members (#1362): accountless trip participants. Flagged guests must never
+  // authenticate or appear in the global user directory.
+  is_guest?: number | boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -144,6 +147,7 @@ export interface BudgetItemMember {
   avatar_url?: string | null;
   avatar?: string | null;
   budget_item_id?: number;
+  amount?: number | null;
 }
 
 export interface BudgetItemPayer {
@@ -386,6 +390,10 @@ export interface TrekPhoto {
   width?: number | null;
   height?: number | null;
   passphrase?: string | null;
+  /** 'image' (default) or 'video' — discriminates how the asset is served/played (#823). */
+  media_type?: string | null;
+  /** Optional video duration in milliseconds. */
+  duration_ms?: number | null;
   created_at: string;
 }
 

@@ -186,8 +186,11 @@ function leaveRoom(ws: NomadWebSocket, tripId: number): void {
 
 /**
  * Broadcast an event to all sockets in a trip room, optionally excluding a socket.
+ * When `onlyUserId` is given the event is delivered only to that user's sockets in
+ * the room — used to keep private packing items (#858) off other members' screens
+ * while still syncing the owner's own tabs.
  */
-function broadcast(tripId: number | string, eventType: string, payload: Record<string, unknown>, excludeSid?: number | string): void {
+function broadcast(tripId: number | string, eventType: string, payload: Record<string, unknown>, excludeSid?: number | string, onlyUserId?: number): void {
   tripId = Number(tripId);
   const room = rooms.get(tripId);
   if (!room || room.size === 0) return;
@@ -198,6 +201,7 @@ function broadcast(tripId: number | string, eventType: string, payload: Record<s
     if (ws.readyState !== 1) continue; // WebSocket.OPEN === 1
     // Exclude the specific socket that triggered the change
     if (excludeNum && socketId.get(ws) === excludeNum) continue;
+    if (onlyUserId != null && socketUser.get(ws)?.id !== onlyUserId) continue;
     ws.send(JSON.stringify({ type: eventType, tripId, ...payload }));
   }
 }

@@ -7,6 +7,7 @@ const common: TranslationStrings = {
   'common.cancel': 'Ακύρωση',
   'common.clear': 'Εκκαθάριση',
   'common.delete': 'Διαγραφή',
+  'common.preview': 'Προεπισκόπηση',
   'common.edit': 'Επεξεργασία',
   'common.add': 'Προσθήκη',
   'common.loading': 'Φόρτωση...',
@@ -50,5 +51,17 @@ const common: TranslationStrings = {
   'common.collapse': 'Σύμπτυξη',
   'common.copy': 'Αντιγραφή',
   'common.copied': 'Αντιγράφηκε',
+  'common.datepicker.prevMonth': 'Previous month', // en-fallback
+  'common.datepicker.nextMonth': 'Next month', // en-fallback
+  'common.datepicker.prevYear': 'Previous year', // en-fallback
+  'common.datepicker.nextYear': 'Next year', // en-fallback
+  'common.datepicker.prevYears': 'Previous years', // en-fallback
+  'common.datepicker.nextYears': 'Next years', // en-fallback
+  'common.datepicker.selectMonth': 'Select month', // en-fallback
+  'common.datepicker.selectYear': 'Select year', // en-fallback
+  'common.datepicker.enterManually': 'Enter date manually', // en-fallback
+  'common.datepicker.typeDate': 'Type a date', // en-fallback
+  'common.datepicker.dialog': 'Date picker', // en-fallback
+  'common.datepicker.clearDate': 'Clear date', // en-fallback
 };
 export default common;

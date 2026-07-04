@@ -1,4 +1,5 @@
 import path from 'path';
+import { avatarUrl } from './avatarUrl';
 import fs from 'fs';
 import type { Request } from 'express';
 import { db } from '../db/database';
@@ -11,7 +12,22 @@ import { TripFile } from '../types';
 // ---------------------------------------------------------------------------
 
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-export const DEFAULT_ALLOWED_EXTENSIONS = 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv,pkpass';
+export const DEFAULT_ALLOWED_EXTENSIONS = 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv,pkpass,md,markdown';
+
+// Video support (#823). Gallery/media uploads accept these in addition to images,
+// independent of the admin doc-types allowlist. Videos are stored as-is and
+// streamed with HTTP Range; the cap is higher than images because phone clips are
+// large.
+export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'webm', 'mov'];
+export const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500 MB
+
+export function isVideoMime(mime: string | undefined | null): boolean {
+  return !!mime && mime.startsWith('video/');
+}
+
+export function isVideoExtension(ext: string): boolean {
+  return VIDEO_EXTENSIONS.includes(ext.toLowerCase().replace(/^\./, ''));
+}
 // Single authoritative blocklist for every file-upload surface (main
 // file manager + collab attachments). When the admin setting
 // `allowed_file_types` is `*`, this list is still enforced so the
@@ -51,7 +67,7 @@ export function formatFile(file: TripFile & { trip_id?: number; uploaded_by_avat
   return {
     ...file,
     url: `/api/trips/${tripId}/files/${file.id}/download`,
-    uploaded_by_avatar: file.uploaded_by_avatar ? `/uploads/avatars/${file.uploaded_by_avatar}` : null,
+    uploaded_by_avatar: avatarUrl({ avatar: file.uploaded_by_avatar }),
   };
 }
 

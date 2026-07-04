@@ -21,3 +21,9 @@
 
 4. Only one method should be used at a time. If both `generateEncryptionKey` and `existingSecret` are
    set, `existingSecret` takes precedence. Ensure the referenced secret and key exist in the namespace.
+
+5. Persistence:
+   - To bind your own PVCs, set `persistence.data.existingClaim` and/or `persistence.uploads.existingClaim`.
+     The other values for that volume (size, storageClassName, annotations) are then ignored.
+   - With `persistence.enabled=false` the volumes use an emptyDir — storage is ephemeral and is lost
+     when the pod restarts. Use only for testing.

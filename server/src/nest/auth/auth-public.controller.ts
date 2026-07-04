@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { RateLimitService } from './rate-limit.service';
 import { OptionalJwtGuard } from './optional-jwt.guard';
 import { writeAudit, getClientIp } from '../../services/auditLog';
+import { willDropSecureCookie } from '../../services/cookie';
 import type { User } from '../../types';
 
 const WINDOW = 15 * 60 * 1000;
@@ -88,7 +89,13 @@ export class AuthPublicController {
       return { mfa_required: true, mfa_token: result.mfa_token };
     }
     this.auth.setAuthCookie(res, result.token!, req, result.remember);
-    return { token: result.token, user: result.user };
+    return {
+      token: result.token,
+      user: result.user,
+      // Surfaced so the client can explain the plain-HTTP cookie gotcha instead
+      // of the user hitting a bare "Access token required" on the next request.
+      ...(willDropSecureCookie(req) ? { insecureCookie: true } : {}),
+    };
   }
 
   @Post('forgot-password')

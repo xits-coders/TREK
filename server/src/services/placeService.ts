@@ -15,6 +15,8 @@ import {
 } from './kmlImport';
 import { enrichImportedPlaces, type EnrichablePlace } from './placeEnrichment';
 import * as placePhotoCache from './placePhotoCache';
+import { searchUnsplashPhotos } from './unsplashService';
+import { type UpdateConflict, isUpdateConflict } from './conflictResult';
 
 // Reclaim a deleted place's cached marker photo if nothing else references it.
 // The cache key is the Google place_id, or — for coordinate-only places — the
@@ -40,11 +42,6 @@ interface PlaceWithCategory extends Place {
   category_name: string | null;
   category_color: string | null;
   category_icon: string | null;
-}
-
-interface UnsplashSearchResponse {
-  results?: { id: string; urls?: { regular?: string; thumb?: string }; description?: string; alt_description?: string; user?: { name?: string }; links?: { html?: string } }[];
-  errors?: string[];
 }
 
 export interface PlaceImportResult {
@@ -183,9 +180,17 @@ export function updatePlace(
     google_place_id?: string; google_ftid?: string; osm_id?: string; website?: string; phone?: string;
     transport_mode?: string; tags?: number[];
   },
-) {
+  ifMatch?: string,
+): ReturnType<typeof getPlaceWithTags> | UpdateConflict | null {
   const existingPlace = db.prepare('SELECT * FROM places WHERE id = ? AND trip_id = ?').get(placeId, tripId) as Place | undefined;
   if (!existingPlace) return null;
+
+  // Optimistic concurrency (#1135): when the caller sent the version it based its
+  // edit on and the row has moved on since, reject instead of clobbering. Absent
+  // token => unconditional update (back-compat — old clients keep last-write-wins).
+  if (ifMatch !== undefined && existingPlace.updated_at != null && String(existingPlace.updated_at) !== ifMatch) {
+    return { conflict: true, server: getPlaceWithTags(placeId) };
+  }
 
   const {
     name, description, lat, lng, address, category_id, price, currency,
@@ -286,6 +291,35 @@ export function deletePlacesMany(tripId: string, ids: number[]): number[] {
   // Reclaim after the transaction commits so isReferenced() sees the final place set.
   for (const row of reclaimable) reclaimPhotoCache(row.google_place_id, row.image_url);
   return deleted;
+}
+
+// ---------------------------------------------------------------------------
+// Bulk update
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply the same set of fields to many places in a single transaction. Each
+ * place is scoped to the trip and patched via updatePlace, so only the provided
+ * fields change and everything else is preserved. IDs that don't belong to the
+ * trip are skipped. Returns the updated places.
+ */
+export function updatePlacesMany(
+  tripId: string,
+  ids: number[],
+  body: Parameters<typeof updatePlace>[2],
+): NonNullable<ReturnType<typeof getPlaceWithTags>>[] {
+  if (ids.length === 0) return [];
+  const updated: NonNullable<ReturnType<typeof getPlaceWithTags>>[] = [];
+  const run = db.transaction((list: number[]) => {
+    for (const id of list) {
+      // Bulk update sends no If-Match, so updatePlace never returns a conflict
+      // here; the guard keeps the types honest.
+      const place = updatePlace(tripId, String(id), body);
+      if (place && !isUpdateConflict(place)) updated.push(place);
+    }
+  });
+  run(ids);
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -943,33 +977,9 @@ export async function importNaverList(
 // Search place image (Unsplash)
 // ---------------------------------------------------------------------------
 
-export async function searchPlaceImage(tripId: string, placeId: string, userId: number) {
+export async function searchPlaceImage(tripId: string, placeId: string, _userId: number) {
   const place = db.prepare('SELECT * FROM places WHERE id = ? AND trip_id = ?').get(placeId, tripId) as Place | undefined;
   if (!place) return { error: 'Place not found', status: 404 };
 
-  const user = db.prepare('SELECT unsplash_api_key FROM users WHERE id = ?').get(userId) as { unsplash_api_key: string | null } | undefined;
-  if (!user || !user.unsplash_api_key) {
-    return { error: 'No Unsplash API key configured', status: 400 };
-  }
-
-  const query = encodeURIComponent(place.name + (place.address ? ' ' + place.address : ''));
-  const response = await fetch(
-    `https://api.unsplash.com/search/photos?query=${query}&per_page=5&client_id=${user.unsplash_api_key}`,
-  );
-  const data = await response.json() as UnsplashSearchResponse;
-
-  if (!response.ok) {
-    return { error: data.errors?.[0] || 'Unsplash API error', status: response.status };
-  }
-
-  const photos = (data.results || []).map((p: NonNullable<UnsplashSearchResponse['results']>[number]) => ({
-    id: p.id,
-    url: p.urls?.regular,
-    thumb: p.urls?.thumb,
-    description: p.description || p.alt_description,
-    photographer: p.user?.name,
-    link: p.links?.html,
-  }));
-
-  return { photos };
+  return searchUnsplashPhotos(place.name + (place.address ? ' ' + place.address : ''), 5);
 }

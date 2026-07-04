@@ -3071,6 +3071,354 @@ function runMigrations(db: Database.Database): void {
         if (!err.message?.includes('duplicate column name')) throw err;
       }
     },
+    () => {
+      try {
+        db.exec('ALTER TABLE budget_item_members ADD COLUMN amount REAL');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+    },
+    // Calendar feed tokens — subscribable ICS links for per-trip and all-trips feeds
+    () => {
+      try {
+        db.exec('ALTER TABLE trips ADD COLUMN feed_token TEXT');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN feed_token TEXT');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_feed_token ON trips(feed_token) WHERE feed_token IS NOT NULL');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_feed_token ON users(feed_token) WHERE feed_token IS NOT NULL');
+    },
+    // Optimistic-concurrency token for offline conflict detection (#1135).
+    // packing_items had only created_at, so an offline edit could not be checked
+    // against a concurrent server change. SQLite forbids a non-constant DEFAULT on
+    // ALTER ADD COLUMN, so add it nullable and backfill from created_at; new rows
+    // set it explicitly (packingService). Additive: a request without the
+    // X-Base-Updated-At header keeps the old last-write-wins behaviour.
+    () => {
+      try {
+        db.exec('ALTER TABLE packing_items ADD COLUMN updated_at DATETIME');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+      db.exec('UPDATE packing_items SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL');
+    },
+    // Video support (#823): the trek_photos registry held only images. media_type
+    // discriminates image vs video so the gallery, lightbox and provider proxy can
+    // branch; duration_ms is optional metadata for the player. Additive — existing
+    // rows default to 'image'.
+    () => {
+      for (const stmt of [
+        "ALTER TABLE trek_photos ADD COLUMN media_type TEXT NOT NULL DEFAULT 'image'",
+        'ALTER TABLE trek_photos ADD COLUMN duration_ms INTEGER',
+      ]) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column name')) throw err;
+        }
+      }
+    },
+    // Dedicated booking URL (#935) — users previously stuffed links into notes.
+    // Additive nullable TEXT; existing rows default to NULL.
+    () => {
+      try {
+        db.exec('ALTER TABLE reservations ADD COLUMN url TEXT');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+    },
+    // Private packing items (#858): an item can be hidden from other trip members.
+    // is_private toggles the visibility; owner_id records who it belongs to so the
+    // listing can show it only to them. owner_id is NULL on legacy rows (shared).
+    () => {
+      for (const stmt of [
+        'ALTER TABLE packing_items ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE packing_items ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL',
+      ]) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column name')) throw err;
+        }
+      }
+    },
+    // Guest members (#1362): people added to a trip without an account. A guest is a
+    // users row flagged is_guest=1 (no usable credentials) joined into trip_members,
+    // so it's assignable everywhere a member is — but must never authenticate or show
+    // up in the global user directory. The flag is the discriminator for those guards.
+    () => {
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0');
+      } catch (err: any) {
+        if (!err.message?.includes('duplicate column name')) throw err;
+      }
+    },
+    // Three-tier packing sharing (#858 follow-up): an item is Common (is_private=0,
+    // every existing item — non-breaking), Personal (is_private=1, owner only) or
+    // Shared-with-people (is_private=1 + recipient rows). owner_id is the "bringer".
+    // Contributors are extra people who said "I can bring that too" on a Common item
+    // (status 'pending' until the owner accepts).
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS packing_item_recipients (
+          item_id INTEGER NOT NULL REFERENCES packing_items(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          PRIMARY KEY (item_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_packing_item_recipients_user ON packing_item_recipients(user_id);
+        CREATE TABLE IF NOT EXISTS packing_item_contributors (
+          item_id INTEGER NOT NULL REFERENCES packing_items(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'accepted',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (item_id, user_id)
+        );
+      `);
+    },
+    // Migration 150: Collections addon — personal place library (#1081).
+    // Multi-list + per-place status (idea/want/visited) + fusion sharing.
+    // (150 = migrations.length of this array after appending — the runner uses
+    //  migrations.length, not this comment; the label is cosmetic.)
+    () => {
+      db.prepare(
+        `
+        INSERT OR IGNORE INTO addons (id, name, description, type, icon, enabled, config, sort_order)
+        VALUES ('collections', 'Collections', 'Personal place library — save places across trips into named lists, copy into any trip, share with others', 'global', 'Bookmark', 0, '{}', 16)
+      `,
+      ).run();
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS collections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          description TEXT,
+          color TEXT DEFAULT '#6366f1',
+          icon TEXT DEFAULT 'Bookmark',
+          cover_image TEXT,
+          sort_order INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS collection_members (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(collection_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS collection_places (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+          owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          saved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          lat REAL,
+          lng REAL,
+          address TEXT,
+          category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+          price REAL,
+          currency TEXT,
+          notes TEXT,
+          image_url TEXT,
+          google_place_id TEXT,
+          google_ftid TEXT,
+          osm_id TEXT,
+          website TEXT,
+          phone TEXT,
+          status TEXT NOT NULL DEFAULT 'idea',
+          source_trip_id INTEGER,
+          source_place_id INTEGER,
+          sort_order INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS collection_place_tags (
+          collection_place_id INTEGER NOT NULL REFERENCES collection_places(id) ON DELETE CASCADE,
+          tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+          PRIMARY KEY (collection_place_id, tag_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_collection_places_collection ON collection_places(collection_id);
+        CREATE INDEX IF NOT EXISTS idx_collection_members_user ON collection_members(user_id);
+        CREATE INDEX IF NOT EXISTS idx_collection_place_tags_place ON collection_place_tags(collection_place_id);
+        CREATE INDEX IF NOT EXISTS idx_collection_place_tags_tag ON collection_place_tags(tag_id);
+      `);
+    },
+
+    // Migration 151: user-added links on collections + saved places (JSON text)
+    () => {
+      try { db.exec('ALTER TABLE collections ADD COLUMN links TEXT'); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+      try { db.exec('ALTER TABLE collection_places ADD COLUMN links TEXT'); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 152: per-member permission role on a shared list. Existing
+    // accepted members default to 'editor' so nothing regresses.
+    () => {
+      try { db.exec("ALTER TABLE collection_members ADD COLUMN role TEXT NOT NULL DEFAULT 'editor'"); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 153: per-trip invite links (#1143). One rotating token per trip;
+    // a logged-in existing user who opens the link joins the trip as a member.
+    // Deleting the trip drops the token (CASCADE); the creator is nulled if their
+    // account is removed so the link keeps working.
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS trip_invite_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trip_id INTEGER NOT NULL UNIQUE REFERENCES trips(id) ON DELETE CASCADE,
+          token TEXT UNIQUE NOT NULL,
+          created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          expires_at TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_trip_invite_tokens_token ON trip_invite_tokens(token);
+      `);
+    },
+    // Migration 154: optional trip binding on an admin invite link (#1402). A user
+    // who REGISTERS via the link is auto-added to the trip. Nullable for backward
+    // compatibility; ON DELETE SET NULL so removing the trip just unbinds the invite.
+    () => {
+      try { db.exec('ALTER TABLE invite_tokens ADD COLUMN trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL'); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 155: plugin system scaffold (#plugins). A plugin is a row here;
+    // its code lives on the /plugins volume and (once the runtime lands) runs in
+    // an isolated child process. This migration only lays down the registry
+    // tables — nothing executes yet. Own data lives in a per-plugin sqlite file
+    // under /plugins-data, never in these tables.
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS plugins (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          type TEXT NOT NULL DEFAULT 'integration',
+          icon TEXT DEFAULT 'Blocks',
+          version TEXT,
+          api_version INTEGER DEFAULT 1,
+          min_trek_version TEXT,
+          permissions TEXT DEFAULT '[]',
+          granted_permissions TEXT DEFAULT '[]',
+          status TEXT NOT NULL DEFAULT 'inactive',
+          config TEXT DEFAULT '{}',
+          source_repo TEXT,
+          source_commit TEXT,
+          sha256 TEXT,
+          crash_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          reviewed_at TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS plugin_meta_migrations (
+          plugin_id TEXT NOT NULL,
+          migration_id TEXT NOT NULL,
+          applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (plugin_id, migration_id)
+        );
+        CREATE TABLE IF NOT EXISTS plugin_error_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          plugin_id TEXT NOT NULL,
+          ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+          level TEXT NOT NULL DEFAULT 'error',
+          message TEXT,
+          stack TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_plugin_error_log_plugin ON plugin_error_log(plugin_id, ts);
+        CREATE TABLE IF NOT EXISTS plugin_settings_fields (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          plugin_id TEXT NOT NULL,
+          field_key TEXT NOT NULL,
+          label TEXT,
+          input_type TEXT NOT NULL DEFAULT 'text',
+          placeholder TEXT,
+          hint TEXT,
+          required INTEGER NOT NULL DEFAULT 0,
+          secret INTEGER NOT NULL DEFAULT 0,
+          scope TEXT NOT NULL DEFAULT 'instance',
+          options TEXT,
+          oauth_config TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (plugin_id, field_key)
+        );
+      `);
+    },
+    // Migration 156: separate the admin's ON/OFF intent (`enabled`) from the
+    // runtime health (`status`). A crash used to flip status to 'error', which
+    // erased the "keep it on" intent, so the plugin never rebooted after a deploy.
+    // Boot now retries every enabled plugin regardless of last status.
+    () => {
+      try {
+        db.exec("ALTER TABLE plugins ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0;");
+        // Anything not explicitly deactivated was meant to be on ('inactive' is the
+        // only status deactivate() sets; a crash/shutdown could leave error/stopped/starting).
+        db.exec("UPDATE plugins SET enabled = 1 WHERE status != 'inactive';");
+      } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 157: plugin capabilities (from trek-plugin.json) — the client
+    // needs them to place widgets (e.g. widget.slot 'hero' renders as an overlay
+    // on the boarding-pass bar instead of the dashboard sidebar).
+    () => {
+      try { db.exec("ALTER TABLE plugins ADD COLUMN capabilities TEXT NOT NULL DEFAULT '{}';"); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 158: TOFU pin for a plugin's author signing key (#plugins, #4).
+    // Set on first install of a signed plugin; a later install whose registry key
+    // differs is a hard stop (author change / key rotation / attack) unless an
+    // admin re-trusts. NULL for unsigned plugins (signing is opt-in).
+    () => {
+      try { db.exec("ALTER TABLE plugins ADD COLUMN author_pubkey TEXT;"); } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 159: hash-chained capability audit log (#plugins, L1 hardening).
+    // Every host-mediated capability call the plugin makes is recorded at the RPC
+    // boundary (where the plugin provably can't reach) with the host-bound acting
+    // user and a per-plugin hash chain, so wide data grants stay attributable +
+    // tamper-evident + user-visible.
+    () => {
+      try {
+        db.exec(`CREATE TABLE IF NOT EXISTS plugin_capability_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          plugin_id TEXT NOT NULL,
+          acting_user_id INTEGER,
+          method TEXT NOT NULL,
+          resource TEXT,
+          code TEXT NOT NULL,
+          ts TEXT NOT NULL DEFAULT (datetime('now')),
+          prev_hash TEXT,
+          hash TEXT NOT NULL
+        );`);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_plugin_audit_plugin ON plugin_capability_audit (plugin_id, id);');
+      } catch (err) { console.warn('[migrations] Non-fatal migration step failed:', err); }
+    },
+    // Migration 160: per-collection custom labels (#collections). Each list owns
+    // its own label set (unlike the instance-wide `tags` table), and a place can
+    // carry several labels. Used for grouping + filtering places within a list.
+    () => {
+      db.exec(`CREATE TABLE IF NOT EXISTS collection_labels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT DEFAULT '#6366f1',
+        sort_order INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );`);
+      db.exec(`CREATE TABLE IF NOT EXISTS collection_place_labels (
+        collection_place_id INTEGER NOT NULL REFERENCES collection_places(id) ON DELETE CASCADE,
+        label_id INTEGER NOT NULL REFERENCES collection_labels(id) ON DELETE CASCADE,
+        PRIMARY KEY (collection_place_id, label_id)
+      );`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_collection_labels_collection ON collection_labels(collection_id);');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_collection_place_labels_place ON collection_place_labels(collection_place_id);');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_collection_place_labels_label ON collection_place_labels(label_id);');
+    },
   ];
 
   if (currentVersion < migrations.length) {

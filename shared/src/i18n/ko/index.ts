@@ -39,6 +39,8 @@ import trip from './trip';
 import trips from './trips';
 import undo from './undo';
 import vacay from './vacay';
+import collection from './collection';
+import help from './help';
 
 const locale = {
   ...common,
@@ -53,6 +55,7 @@ const locale = {
   ...login,
   ...register,
   ...vacay,
+  ...collection,
   ...atlas,
   ...trip,
   ...places,
@@ -82,5 +85,6 @@ const locale = {
   ...oauth,
   ...system_notice,
   ...transport,
+  ...help,
 };
 export default locale;

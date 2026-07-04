@@ -3,7 +3,8 @@ interface DragDataPayload { placeId?: string; assignmentId?: string; noteId?: st
 declare global { interface Window { __dragData: DragDataPayload | null } }
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
-import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon } from 'lucide-react'
+import { avatarSrc } from '../../utils/avatarSrc'
+import { ChevronDown, ChevronRight, ChevronUp, Navigation, RotateCcw, ExternalLink, Clock, Pencil, GripVertical, Ticket, Plus, FileText, Trash2, Car, Lock, Hotel, Footprints, Route as RouteIcon, Bookmark, TramFront } from 'lucide-react'
 import { assignmentsApi, reservationsApi } from '../../api/client'
 import { calculateRoute, calculateRouteWithLegs, optimizeRoute, generateGoogleMapsUrl } from '../Map/RouteCalculator'
 import PlaceAvatar from '../shared/PlaceAvatar'
@@ -17,6 +18,9 @@ import { getCategoryIcon } from '../shared/categoryIcons'
 import { useTripStore } from '../../store/tripStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useSettingsStore } from '../../store/settingsStore'
+import { useAddonStore } from '../../store/addonStore'
+import { useSaveToCollectionStore } from '../../store/saveToCollectionStore'
+import { placeToSaveTarget } from '../Collections/saveTarget'
 import { useTranslation } from '../../i18n'
 import { isDayInAccommodationRange, getAccommodationAnchors, getDayBookendHotels } from '../../utils/dayOrder'
 import {
@@ -33,6 +37,7 @@ import { DayPlanSidebarToolbar } from './DayPlanSidebarToolbar'
 import { DayPlanSidebarNoteModal } from './DayPlanSidebarNoteModal'
 import { DayPlanSidebarTimeConfirmModal } from './DayPlanSidebarTimeConfirmModal'
 import { DayPlanSidebarTransportDetailModal } from './DayPlanSidebarTransportDetailModal'
+import { TransitTitle, TransitLegChips, TransitItineraryInline } from './transitDisplay'
 import { DayPlanSidebarFooter } from './DayPlanSidebarFooter'
 import type { Trip, Day, Place, Category, Assignment, Accommodation, Reservation, AssignmentsMap, RouteResult, RouteSegment, DayNote } from '../../types'
 import { getGoogleMapsUrlForPlace } from './placeGoogleMaps'
@@ -80,6 +85,10 @@ interface DayPlanSidebarProps {
   onUndo?: () => void
   onRouteRefresh?: () => void
   onAddTransport?: (dayId: number) => void
+  /** Opens the public-transit route search for a day (#1065). */
+  onPlanTransit?: (dayId: number) => void
+  /** Opens the journey view for a saved transit entry (#1065). */
+  onOpenTransit?: (reservation: Reservation) => void
   onEditTransport?: (reservation: Reservation) => void
   onEditReservation?: (reservation: Reservation) => void
   onAddBookingToAssignment?: (dayId: number, assignmentId: number) => void
@@ -123,6 +132,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   onUndo,
   onRouteRefresh,
   onAddTransport,
+  onPlanTransit,
+  onOpenTransit,
   onEditTransport,
   onEditReservation,
   onAddBookingToAssignment,
@@ -152,8 +163,18 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const [editTitle, setEditTitle] = useState('')
   const [isCalculating, setIsCalculating] = useState(false)
   const [routeInfo, setRouteInfo] = useState(null)
-  const [routeLegs, setRouteLegs] = useState<Record<number, RouteSegment>>({})
-  const [hotelLegs, setHotelLegs] = useState<{ top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } }>({})
+  // Per-segment legs keyed by day id, then by the start place's assignment id (or the
+  // transport's reservation id). Nested per day so several Route-toggled mobile days
+  // can't collide in one flat map — assignment ids and reservation ids come from
+  // independent sequences and would overwrite each other across days (#1374).
+  const [routeLegs, setRouteLegs] = useState<Record<number, Record<number, RouteSegment>>>({})
+  // Hotel bookend legs keyed by day id. Desktop keys only the selected day; mobile
+  // keys every day whose Route toggle is on, so each shows its own bookends (#1374).
+  const [hotelLegs, setHotelLegs] = useState<Record<number, { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } }>>({})
+  // Mobile only: days the user tapped "Route" on. Their leg distances show inline in
+  // the expanded day, so seeing distances doesn't require selecting the day (which
+  // closes the mobile sheet) — #1374.
+  const [expandedRouteDayIds, setExpandedRouteDayIds] = useState<Set<number>>(new Set())
   const optimizeFromAccommodation = useSettingsStore(s => s.settings.optimize_from_accommodation)
   // Recompute the hotel/route legs when the user flips km↔mi so the connector
   // distances refresh instead of showing stale cached text (#1300).
@@ -166,6 +187,8 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   const [pdfHover, setPdfHover] = useState(false)
   const [icsHover, setIcsHover] = useState(false)
   const [hoveredAssignmentId, setHoveredAssignmentId] = useState<number | null>(null)
+  // Transit rows fold their itinerary out inline (#1065).
+  const [expandedTransitIds, setExpandedTransitIds] = useState<Set<number>>(new Set())
   const [dropTargetKey, _setDropTargetKey] = useState(null)
   const dropTargetRef = useRef(null)
   const setDropTargetKey = (key) => { dropTargetRef.current = key; _setDropTargetKey(key) }
@@ -198,7 +221,7 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // Remember which assignment we last auto-scrolled into view so we don't
   // keep yanking the user back whenever they scroll away while the same
   // place stays selected.
-  const lastAutoScrolledIdRef = useRef<number | null>(null)
+  const lastAutoScrolledIdRef = useRef<string | number | null>(null)
   useEffect(() => {
     // Reset the scroll-lock whenever selection moves, so the next selected
     // row triggers a fresh scroll-into-view on its ref.
@@ -380,101 +403,138 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, assignments, dayNotes, reservations, transportPosVersion])
 
-  // Per-segment driving times for the selected day's connectors. Groups located
-  // places into runs (split at transports), one cached OSRM call per run, keyed by
-  // the start place's assignment id. Shares RouteCalculator's cache with the map.
+  // Days whose inline route legs should be computed & shown. Desktop: the selected
+  // day while the Route toggle is on. Mobile: each expanded day the user tapped
+  // "Route" on — shown inline so seeing distances between places doesn't require
+  // selecting the day, which would close the mobile sheet (#1374).
+  const routeDayIds = useMemo<number[]>(() => (
+    showRouteToolsWhenExpanded
+      ? days.filter(d => expandedRouteDayIds.has(d.id) && expandedDays.has(d.id)).map(d => d.id)
+      : (routeShown && selectedDayId ? [selectedDayId] : [])
+  ), [showRouteToolsWhenExpanded, expandedRouteDayIds, expandedDays, days, routeShown, selectedDayId])
+  const routeDayKey = routeDayIds.join(',')
+
+  // Per-segment travel times shown as connectors between a day's located stops.
+  // Groups located places into runs (split at transports), one cached OSRM call per
+  // run keyed by the start place's assignment id, plus the hotel bookend legs. Shares
+  // RouteCalculator's cache with the map. Runs for every day in routeDayIds — one
+  // selected day on desktop, each Route-toggled day on mobile (#1374).
   useEffect(() => {
     if (legsAbortRef.current) legsAbortRef.current.abort()
-    if (!selectedDayId || !routeShown) { setRouteLegs({}); setHotelLegs({}); return }
-    const merged = mergedItemsMap[selectedDayId] || []
-    const runs: { id: number; lat: number; lng: number }[][] = []
-    let cur: { id: number; lat: number; lng: number }[] = []
-    for (const it of merged) {
-      if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
-        cur.push({ id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng })
-      } else if (it.type === 'transport') {
-        const r = it.data
-        const { from, to } = getTransportRouteEndpoints(r, selectedDayId)
-        if (from || to) {
-          // Located transport: route to its departure point, break the run (the
-          // flight/train itself isn't driven), and let its arrival start the next.
-          if (from) cur.push({ id: r.id, lat: from.lat, lng: from.lng })
-          if (cur.length >= 2) runs.push(cur)
-          cur = []
-          if (to) cur.push({ id: r.id, lat: to.lat, lng: to.lng })
-        } else if (cur.length > 0) {
-          // No location: ignore for routing, but attribute the through-leg to the
-          // booking so its distance/duration shows under it (purely cosmetic).
-          cur[cur.length - 1] = { ...cur[cur.length - 1], id: r.id }
+    if (routeDayIds.length === 0) { setRouteLegs({}); setHotelLegs({}); return }
+
+    const hotelName = (a: Accommodation) => (a as any).place_name || (a as any).reservation_title || ''
+
+    // Pure per-day plan: the drive runs (each ≥2 waypoints) and which hotel bookend
+    // legs to draw. Side-effect free, so the async loop below only does OSRM I/O.
+    const planDay = (dayId: number) => {
+      const merged = mergedItemsMap[dayId] || []
+      const runs: { id: number; lat: number; lng: number }[][] = []
+      let cur: { id: number; lat: number; lng: number }[] = []
+      // A run is only a real drive when it holds an actual place. Two back-to-back
+      // transports (e.g. two flights on one day) would otherwise pair the first's
+      // arrival with the second's departure into a phantom airport→airport leg — the
+      // flight, not a drive — and surface it as a bogus connector distance (#1394).
+      let curHasPlace = false
+      for (const it of merged) {
+        if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
+          cur.push({ id: it.data.id, lat: it.data.place.lat, lng: it.data.place.lng })
+          curHasPlace = true
+        } else if (it.type === 'transport') {
+          const r = it.data
+          const { from, to } = getTransportRouteEndpoints(r, dayId)
+          if (from || to) {
+            // Located transport: route to its departure point, break the run (the
+            // flight/train itself isn't driven), and let its arrival start the next.
+            if (from) cur.push({ id: r.id, lat: from.lat, lng: from.lng })
+            if (cur.length >= 2 && curHasPlace) runs.push(cur)
+            cur = []
+            curHasPlace = false
+            if (to) cur.push({ id: r.id, lat: to.lat, lng: to.lng })
+          } else if (cur.length > 0) {
+            // No location: ignore for routing, but attribute the through-leg to the
+            // booking so its distance/duration shows under it (purely cosmetic).
+            cur[cur.length - 1] = { ...cur[cur.length - 1], id: r.id }
+          }
         }
       }
-    }
-    if (cur.length >= 2) runs.push(cur)
+      if (cur.length >= 2 && curHasPlace) runs.push(cur)
 
-    // Hotel bookend legs: the drive from the day's accommodation to the first located
-    // waypoint of the day (morning) and from the last one back to it (evening). Only when
-    // the "optimize from accommodation" setting is on and the day has a hotel.
-    const day = days.find(d => d.id === selectedDayId)
-    const bookends = day && optimizeFromAccommodation !== false
-      ? getDayBookendHotels(day, days, accommodations)
-      : null
-    const startHotel = bookends?.morning
-    const endHotel = bookends?.evening
-    const hotelName = (a: Accommodation) => (a as any).place_name || (a as any).reservation_title || ''
-    // Waypoints include transport endpoints (a car return, a taxi/train arrival), so the hotel
-    // legs connect even when the day starts or ends with a booking rather than a place. Track
-    // whether each is a place so we can skip a hotel↔transport leg that isn't real: on a day-1
-    // arrival the check-in hotel never drove to the departure airport (#1321).
-    const wayPts: { lat: number; lng: number; isPlace: boolean }[] = []
-    for (const it of merged) {
-      if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
-        wayPts.push({ lat: it.data.place.lat, lng: it.data.place.lng, isPlace: true })
-      } else if (it.type === 'transport') {
-        const { from, to } = getTransportRouteEndpoints(it.data, selectedDayId)
-        if (from) wayPts.push({ lat: from.lat, lng: from.lng, isPlace: false })
-        if (to) wayPts.push({ lat: to.lat, lng: to.lng, isPlace: false })
+      // Hotel bookend legs: the drive from the day's accommodation to the first located
+      // waypoint of the day (morning) and from the last one back to it (evening). Only when
+      // the "optimize from accommodation" setting is on and the day has a hotel.
+      const day = days.find(d => d.id === dayId)
+      const bookends = day && optimizeFromAccommodation !== false
+        ? getDayBookendHotels(day, days, accommodations)
+        : null
+      const startHotel = bookends?.morning
+      const endHotel = bookends?.evening
+      // Waypoints include transport endpoints (a car return, a taxi/train arrival), so the hotel
+      // legs connect even when the day starts or ends with a booking rather than a place. Track
+      // whether each is a place so we can skip a hotel↔transport leg that isn't real: on a day-1
+      // arrival the check-in hotel never drove to the departure airport (#1321).
+      const wayPts: { lat: number; lng: number; isPlace: boolean }[] = []
+      for (const it of merged) {
+        if (it.type === 'place' && it.data.place?.lat && it.data.place?.lng) {
+          wayPts.push({ lat: it.data.place.lat, lng: it.data.place.lng, isPlace: true })
+        } else if (it.type === 'transport') {
+          const { from, to } = getTransportRouteEndpoints(it.data, dayId)
+          if (from) wayPts.push({ lat: from.lat, lng: from.lng, isPlace: false })
+          if (to) wayPts.push({ lat: to.lat, lng: to.lng, isPlace: false })
+        }
       }
+      const firstWay = wayPts[0]
+      const lastWay = wayPts[wayPts.length - 1]
+      const wantTop = !!(startHotel && firstWay && (firstWay.isPlace || bookends?.morningIsSleptHere))
+      const wantBottom = !!(endHotel && lastWay && (lastWay.isPlace || bookends?.eveningIsOvernight))
+      return { runs, startHotel, endHotel, firstWay, lastWay, wantTop, wantBottom }
     }
-    const firstWay = wayPts[0]
-    const lastWay = wayPts[wayPts.length - 1]
-    const wantTop = !!(startHotel && firstWay && (firstWay.isPlace || bookends?.morningIsSleptHere))
-    const wantBottom = !!(endHotel && lastWay && (lastWay.isPlace || bookends?.eveningIsOvernight))
-
-    if (runs.length === 0 && !wantTop && !wantBottom) { setRouteLegs({}); setHotelLegs({}); return }
 
     const controller = new AbortController()
     legsAbortRef.current = controller
     ;(async () => {
-      const map: Record<number, RouteSegment> = {}
-      for (const run of runs) {
-        try {
-          const r = await calculateRouteWithLegs(run.map(p => ({ lat: p.lat, lng: p.lng })), { signal: controller.signal, profile: routeProfile })
-          r.legs.forEach((leg, i) => { map[run[i].id] = leg })
-        } catch (err) {
-          if (err instanceof Error && err.name === 'AbortError') return
-        }
-      }
+      const legsByDay: Record<number, Record<number, RouteSegment>> = {}
+      const hotelByDay: Record<number, { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } }> = {}
 
-      // One extra cached OSRM call per bookend; shares RouteCalculator's cache.
+      // One cached OSRM call per waypoint pair; shares RouteCalculator's cache.
       const legBetween = async (a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<RouteSegment | undefined> => {
         try {
           const r = await calculateRouteWithLegs([a, b], { signal: controller.signal, profile: routeProfile })
           return r.legs[0]
         } catch { return undefined }
       }
-      const hotel: { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } } = {}
-      if (wantTop) {
-        const seg = await legBetween({ lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number }, { lat: firstWay.lat, lng: firstWay.lng })
-        if (seg) hotel.top = { seg, name: hotelName(startHotel!) }
-      }
-      if (wantBottom) {
-        const seg = await legBetween({ lat: lastWay.lat, lng: lastWay.lng }, { lat: endHotel!.place_lat as number, lng: endHotel!.place_lng as number })
-        if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
+
+      for (const dayId of routeDayIds) {
+        const { runs, startHotel, endHotel, firstWay, lastWay, wantTop, wantBottom } = planDay(dayId)
+        const dayLegs: Record<number, RouteSegment> = {}
+        for (const run of runs) {
+          try {
+            const r = await calculateRouteWithLegs(run.map(p => ({ lat: p.lat, lng: p.lng })), { signal: controller.signal, profile: routeProfile })
+            r.legs.forEach((leg, i) => { dayLegs[run[i].id] = leg })
+          } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') return
+          }
+        }
+        if (Object.keys(dayLegs).length) legsByDay[dayId] = dayLegs
+        const hotel: { top?: { seg: RouteSegment; name: string }; bottom?: { seg: RouteSegment; name: string } } = {}
+        if (wantTop) {
+          const seg = await legBetween({ lat: startHotel!.place_lat as number, lng: startHotel!.place_lng as number }, { lat: firstWay!.lat, lng: firstWay!.lng })
+          if (seg) hotel.top = { seg, name: hotelName(startHotel!) }
+        }
+        if (wantBottom) {
+          const seg = await legBetween({ lat: lastWay!.lat, lng: lastWay!.lng }, { lat: endHotel!.place_lat as number, lng: endHotel!.place_lng as number })
+          if (seg) hotel.bottom = { seg, name: hotelName(endHotel!) }
+        }
+        if (controller.signal.aborted) return
+        if (hotel.top || hotel.bottom) hotelByDay[dayId] = hotel
       }
 
-      if (!controller.signal.aborted) { setRouteLegs(map); setHotelLegs(hotel) }
+      if (!controller.signal.aborted) { setRouteLegs(legsByDay); setHotelLegs(hotelByDay) }
     })()
-  }, [selectedDayId, routeShown, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit])
+    // routeDayIds is memoized from the same inputs as routeDayKey below, so keying the
+    // effect on the string is equivalent while staying stable across unrelated renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeDayKey, routeProfile, mergedItemsMap, accommodations, days, optimizeFromAccommodation, distanceUnit])
 
   const openAddNote = (dayId, e) => {
     e?.stopPropagation()
@@ -949,7 +1009,11 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     onUndo,
     onRouteRefresh,
     onAddTransport,
+    onPlanTransit,
+    onOpenTransit,
     onEditTransport,
+    expandedTransitIds,
+    setExpandedTransitIds,
     onEditReservation,
     onAddBookingToAssignment,
     initialScrollTop,
@@ -1050,14 +1114,23 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
     totalCost,
     anyGeoAssignment,
     anyGeoPlace,
+    expandedRouteDayIds,
+    setExpandedRouteDayIds,
   }
 }
 
 const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarProps) {
   const S = useDayPlanSidebar(props)
+  // A stable key for the current selection. A multi-day place renders one row per
+  // day (same place_id, different assignment ids); selecting it by place_id alone
+  // (e.g. clicking an accommodation) marks every one of those rows selected, so a
+  // per-assignment scroll-lock would let each day's row scroll the list in turn.
+  // Keying the lock on the selection identity makes only the first row scroll (#1375).
+  const selectionScrollKey = S.selectedAssignmentId != null ? `a${S.selectedAssignmentId}` : S.selectedPlaceId != null ? `p${S.selectedPlaceId}` : null
   // Needed by the route-tools visibility gate in the render below (#1330); the hook
   // keeps its own copy, so read it reactively here in the component scope too.
   const optimizeFromAccommodation = useSettingsStore(s => s.settings.optimize_from_accommodation)
+  const collectionsEnabled = useAddonStore(s => s.isEnabled('collections'))
   const {
     tripId,
     trip,
@@ -1101,7 +1174,11 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     onUndo,
     onRouteRefresh,
     onAddTransport,
+    onPlanTransit,
+    onOpenTransit,
     onEditTransport,
+    expandedTransitIds,
+    setExpandedTransitIds,
     onEditReservation,
     onAddBookingToAssignment,
     initialScrollTop,
@@ -1202,6 +1279,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     totalCost,
     anyGeoAssignment,
     anyGeoPlace,
+    expandedRouteDayIds,
+    setExpandedRouteDayIds,
   } = S
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', fontFamily: "var(--font-system)" }}>
@@ -1253,6 +1332,10 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
             (routeBookends?.evening?.place_lat != null && routeBookends?.evening?.place_lng != null)
           )
           const routeToolsRoutable = da.length >= 2 || (loc != null && hasRouteBookend)
+          // Is this day's inline route currently on? Mobile toggles it per day (its
+          // own expandedRouteDayIds entry); desktop uses the global Route toggle on
+          // the selected day (#1374).
+          const routeActive = showRouteToolsWhenExpanded ? expandedRouteDayIds.has(day.id) : (routeShown && isSelected)
           const isDragTarget = dragOverDayId === day.id
           const merged = mergedItemsMap[day.id] || []
           const dayNoteUi = noteUi[day.id]
@@ -1300,7 +1383,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       color: isSelected ? 'var(--accent-text)' : 'var(--text-muted)',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', overflow: 'hidden',
                     }}>
-                      <div style={{ width: '100%', height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                      <div style={{ width: '100%', height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 700 }}>
                         {index + 1}
                       </div>
                       {hasWeather && (
@@ -1326,20 +1409,20 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       onClick={e => e.stopPropagation()}
                       style={{
                         width: '100%', border: 'none', outline: 'none',
-                        fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
+                        fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 600, color: 'var(--text-primary)',
                         background: 'transparent', padding: 0, fontFamily: 'inherit',
                         borderBottom: '1.5px solid var(--text-primary)',
                       }}
                     />
                   ) : (<>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 'calc(14px * var(--fs-scale-body, 1))', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
                         {day.title || t('dayplan.dayN', { n: index + 1 })}
                       </span>
                       {formattedDate && (
                         <>
                           <span style={{ flexShrink: 0, width: 1, height: 11, background: 'var(--border-primary)' }} />
-                          <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 400, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
+                          <span style={{ flexShrink: 0, fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 400, color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>
                             {formattedDate}
                           </span>
                         </>
@@ -1374,7 +1457,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           return (
                             <span key={acc.id} onClick={e => { e.stopPropagation(); if ((acc as any).place_id) onPlaceClick((acc as any).place_id) }} className="bg-surface-hover" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0, cursor: (acc as any).place_id ? 'pointer' : 'default', borderRadius: 7, padding: '2px 7px 2px 6px' }}>
                               <Hotel size={11} strokeWidth={1.8} style={{ color: iconColor, flexShrink: 0 }} />
-                              <span className="text-content-muted" style={{ fontSize: 10.5, fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(acc as any).place_name || (acc as any).reservation_title}</span>
+                              <span className="text-content-muted" style={{ fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(acc as any).place_name || (acc as any).reservation_title}</span>
                             </span>
                           )
                         })
@@ -1386,7 +1469,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         return activeRentals.map(r => (
                           <span key={`rental-${r.id}`} onClick={e => { e.stopPropagation(); setTransportDetail(r) }} className="bg-surface-hover" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0, cursor: 'pointer', borderRadius: 7, padding: '2px 7px 2px 6px' }}>
                             <Car size={11} strokeWidth={1.8} className="text-content-faint" style={{ flexShrink: 0 }} />
-                            <span className="text-content-muted" style={{ fontSize: 10.5, fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+                            <span className="text-content-muted" style={{ fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
                           </span>
                         ))
                       })()}
@@ -1395,7 +1478,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                   )}
                   {cost && (
                     <div style={{ marginTop: 2 }}>
-                      <span className="text-[#059669]" style={{ fontSize: 11 }}>{cost}</span>
+                      <span className="text-[#059669]" style={{ fontSize: 'calc(11px * var(--fs-scale-caption, 1))' }}>{cost}</span>
                     </div>
                   )}
                 </div>
@@ -1406,9 +1489,13 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                     const div = '1px solid var(--border-faint)'
                     return (
                       <div className="dp-day-actions" style={{ alignSelf: 'flex-start', flexShrink: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', border: div, borderRadius: 9, overflow: 'hidden' }}>
-                        <button onClick={e => startEditTitle(day, e)} aria-label={t('common.edit')} style={{ ...cell, border: 'none', borderRight: div, borderBottom: div }}>
-                          <Pencil size={14} strokeWidth={1.8} />
-                        </button>
+                        {/* Public transit search (#1065) — replaced the rename pencil,
+                            which moved next to the day name in the day detail view. */}
+                        {onPlanTransit ? (
+                          <button onClick={e => { e.stopPropagation(); onPlanTransit(day.id) }} title={t('transit.title')} aria-label={t('transit.title')} style={{ ...cell, border: 'none', borderRight: div, borderBottom: div }}>
+                            <TramFront size={14} strokeWidth={1.8} />
+                          </button>
+                        ) : <div style={{ borderRight: div, borderBottom: div }} />}
                         {onAddTransport ? (
                           <button onClick={e => { e.stopPropagation(); onAddTransport(day.id) }} title={t('transport.addTransport')} style={{ ...cell, border: 'none', borderBottom: div }}>
                             <Plus size={14} strokeWidth={1.8} />
@@ -1494,8 +1581,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       handleMergedDrop(day.id, 'note', Number(noteId), lastItem.type, lastItem.data.id, true)
                   }}
                 >
-                  {isSelected && hotelLegs.top && (
-                    <HotelRouteConnector seg={hotelLegs.top.seg} name={hotelLegs.top.name} profile={routeProfile} placement="top" />
+                  {hotelLegs[day.id]?.top && (
+                    <HotelRouteConnector seg={hotelLegs[day.id]!.top!.seg} name={hotelLegs[day.id]!.top!.name} profile={routeProfile} placement="top" />
                   )}
                   {merged.length === 0 && !dayNoteUi ? (
                     <div
@@ -1506,7 +1593,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         border: dragOverDayId === day.id ? '2px dashed rgba(17,24,39,0.2)' : '2px dashed transparent',
                       }}
                     >
-                      <span className="text-content-faint" style={{ fontSize: 12 }}>{t('dayplan.emptyDay')}</span>
+                      <span className="text-content-faint" style={{ fontSize: 'calc(12px * var(--fs-scale-body, 1))' }}>{t('dayplan.emptyDay')}</span>
                     </div>
                   ) : (
                     merged.map((item, idx) => {
@@ -1605,14 +1692,14 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               // the transition "just became selected". Once we've
                               // scrolled for this assignment id, we won't scroll
                               // again until selection actually moves somewhere else.
-                              if (el && isPlaceSelected && lastAutoScrolledIdRef.current !== assignment.id) {
+                              if (el && isPlaceSelected && selectionScrollKey != null && lastAutoScrolledIdRef.current !== selectionScrollKey) {
                                 const rect = el.getBoundingClientRect()
                                 const nearTop = rect.top < 80
                                 const nearBottom = rect.bottom > window.innerHeight - 80
                                 if (nearTop || nearBottom) {
                                   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
                                 }
-                                lastAutoScrolledIdRef.current = assignment.id
+                                lastAutoScrolledIdRef.current = selectionScrollKey
                               }
                             }}
                             onDragEnd={() => { setDraggingId(null); setDragOverDayId(null); setDropTargetKey(null); dragDataRef.current = null }}
@@ -1623,7 +1710,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                 canEditDays && onEditPlace && { label: t('common.edit'), icon: Pencil, onClick: () => onEditPlace(place, assignment.id) },
                                 canEditDays && onRemoveAssignment && { label: t('planner.removeFromDay'), icon: Trash2, onClick: () => onRemoveAssignment(day.id, assignment.id) },
                                 place.website && { label: t('inspector.website'), icon: ExternalLink, onClick: () => window.open(place.website, '_blank') },
-                                googleMapsUrl && { label: 'Google Maps', icon: Navigation, onClick: () => window.open(googleMapsUrl, '_blank') },
+                                googleMapsUrl && { label: t('inspector.google'), icon: Navigation, onClick: () => window.open(googleMapsUrl, '_blank') },
+                                collectionsEnabled && { label: t('inspector.saveToCollection'), icon: Bookmark, onClick: () => useSaveToCollectionStore.getState().open(placeToSaveTarget(place)) },
                                 { divider: true },
                                 canEditDays && onDeletePlace && { label: t('common.delete'), icon: Trash2, danger: true, onClick: () => onDeletePlace(place.id) },
                               ])
@@ -1684,7 +1772,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)',
                                   marginLeft: 8, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 50,
                                   background: 'var(--bg-card, white)', color: 'var(--text-primary, #111827)',
-                                  fontSize: 11, fontWeight: 500, padding: '5px 10px', borderRadius: 8,
+                                  fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 500, padding: '5px 10px', borderRadius: 8,
                                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)', border: '1px solid var(--border-faint, #e5e7eb)',
                                 }}>
                                   {lockedIds.has(assignment.id)
@@ -1699,18 +1787,18 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   const CatIcon = getCategoryIcon(cat.icon)
                                   return <span title={cat.name} style={{ display: 'inline-flex', flexShrink: 0 }}><CatIcon size={10} strokeWidth={2} color={cat.color || 'var(--text-muted)'} /></span>
                                 })()}
-                                <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                <span style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                   {place.name}
                                 </span>
                                 {place.place_time && (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 10, color: 'var(--text-faint)', fontWeight: 400, marginLeft: 6 }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', fontWeight: 400, marginLeft: 6 }}>
                                     <Clock size={9} strokeWidth={2} />
                                     {formatTime(place.place_time, locale, timeFormat)}{place.end_time ? ` – ${formatTime(place.end_time, locale, timeFormat)}` : ''}
                                   </span>
                                 )}
                               </div>
                               {(place.description || place.address || cat?.name) && (
-                                <div className="collab-note-md" style={{ marginTop: 2, fontSize: 10, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, maxHeight: '1.2em' }}>
+                                <div className="collab-note-md" style={{ marginTop: 2, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2, maxHeight: '1.2em' }}>
                                   <Markdown remarkPlugins={[remarkGfm]}>{place.description || place.address || cat?.name || ''}</Markdown>
                                 </div>
                               )}
@@ -1722,7 +1810,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                 const active = hasEndpoints ? visibleConnectionIds.includes(res.id) : false
                                 return (
                                   <div style={{ marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <div className={confirmed ? 'bg-[rgba(22,163,74,0.1)] text-[#16a34a]' : 'bg-[rgba(217,119,6,0.1)] text-[#d97706]'} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 5, fontSize: 9, fontWeight: 600,
+                                    <div className={confirmed ? 'bg-[rgba(22,163,74,0.1)] text-[#16a34a]' : 'bg-[rgba(217,119,6,0.1)] text-[#d97706]'} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 5, fontSize: 'calc(9px * var(--fs-scale-caption, 1))', fontWeight: 600,
                                     }}>
                                       {(() => { const RI = RES_ICONS[res.type] || Ticket; return <RI size={8} /> })()}
                                       <span className="hidden sm:inline">{confirmed ? t('planner.resConfirmed') : t('planner.resPending')}</span>
@@ -1797,15 +1885,15 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   {assignment.participants.slice(0, 5).map((p, pi) => (
                                     <div key={p.user_id} className="bg-surface-tertiary text-content-muted" style={{
                                       width: 16, height: 16, borderRadius: '50%', border: '1.5px solid var(--bg-card)',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 700,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'calc(7px * var(--fs-scale-caption, 1))', fontWeight: 700,
                                       marginLeft: pi > 0 ? -4 : 0, flexShrink: 0,
                                       overflow: 'hidden',
                                     }}>
-                                      {p.avatar ? <img src={`/uploads/avatars/${p.avatar}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : p.username?.[0]?.toUpperCase()}
+                                      {p.avatar ? <img src={avatarSrc(p.avatar)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : p.username?.[0]?.toUpperCase()}
                                     </div>
                                   ))}
                                   {assignment.participants.length > 5 && (
-                                    <span className="text-content-faint" style={{ fontSize: 8, marginLeft: 2 }}>+{assignment.participants.length - 5}</span>
+                                    <span className="text-content-faint" style={{ fontSize: 'calc(8px * var(--fs-scale-caption, 1))', marginLeft: 2 }}>+{assignment.participants.length - 5}</span>
                                   )}
                                 </div>
                               )}
@@ -1835,7 +1923,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 3,
-                                  fontSize: 10,
+                                  fontSize: 'calc(10px * var(--fs-scale-caption, 1))',
                                   fontWeight: 500,
                                   color: 'var(--text-muted)',
                                   fontFamily: 'inherit',
@@ -1845,7 +1933,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               </button>
                             )}
                           </div>
-                          {routeLegs[assignment.id] && <RouteConnector seg={routeLegs[assignment.id]} profile={routeProfile} />}
+                          {routeLegs[day.id]?.[assignment.id] && <RouteConnector seg={routeLegs[day.id]![assignment.id]} profile={routeProfile} />}
                           </React.Fragment>
                         )
                       }
@@ -1865,8 +1953,10 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         // Subtitle aus Metadaten zusammensetzen
                         let subtitle = ''
                         if (res.__leg) {
-                          // One leg of a multi-leg flight — show this segment's own route.
-                          const parts = [res.__leg.airline, res.__leg.flight_number].filter(Boolean)
+                          // One leg of a multi-leg flight/train — show this segment's own detail.
+                          const parts = res.type === 'train'
+                            ? [res.__leg.train_number, res.__leg.platform ? `Gl. ${res.__leg.platform}` : '', res.__leg.seat ? `Sitz ${res.__leg.seat}` : ''].filter(Boolean)
+                            : [res.__leg.airline, res.__leg.flight_number].filter(Boolean)
                           if (res.__leg.from || res.__leg.to)
                             parts.push([res.__leg.from, res.__leg.to].filter(Boolean).join(' → '))
                           subtitle = parts.join(' · ')
@@ -1879,6 +1969,11 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           subtitle = [meta.train_number, meta.platform ? `Gl. ${meta.platform}` : '', meta.seat ? `Sitz ${meta.seat}` : ''].filter(Boolean).join(' · ')
                         }
 
+                        // A transit journey (#1065) renders its itinerary inline —
+                        // line badges in their colors instead of a plain subtitle,
+                        // so the connection is recognisable at a glance.
+                        const transitMeta = res.type === 'transit' && meta.transit && Array.isArray(meta.transit.legs) ? meta.transit : null
+
                         // Multi-day span phase (single-leg / non-flight only — a
                         // multi-leg flight is shown as one row per leg, see below).
                         const spanLabel = res.__leg ? null : getSpanLabel(res, spanPhase)
@@ -1889,8 +1984,16 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                           <React.Fragment key={`transport-${res.id}-${legKey}-${day.id}`}>
                           <div
                             onClick={() => {
-                              if (!canEditDays) return
                               const target = reservations.find(x => x.id === res.id) ?? res
+                              // A transit journey opens its own journey view — the rich
+                              // stop-by-stop breakdown with its booking fields, never the
+                              // generic edit form (#1065).
+                              if (transitMeta) {
+                                if (onOpenTransit) onOpenTransit(target)
+                                else setTransportDetail(target)
+                                return
+                              }
+                              if (!canEditDays) return
                               if (TRANSPORT_TYPES.has(res.type)) onEditTransport?.(target)
                               else onEditReservation?.(target)
                             }}
@@ -1948,7 +2051,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               borderTop: showDropLine ? '2px solid var(--text-primary)' : undefined,
                               borderBottom: showDropLineAfter ? '2px solid var(--text-primary)' : undefined,
                               background: `${color}08`,
-                              cursor: canEditDays && onEditTransport ? 'pointer' : 'default', userSelect: 'none',
+                              cursor: (transitMeta || (canEditDays && onEditTransport)) ? 'pointer' : 'default', userSelect: 'none',
                               transition: 'background 0.1s',
                               opacity: draggingId === res.id ? 0.4 : spanPhase === 'middle' ? 0.65 : 1,
                             }}
@@ -1968,21 +2071,21 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 {spanLabel && (
                                   <span style={{
-                                    fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, flexShrink: 0,
+                                    fontSize: 'calc(9px * var(--fs-scale-caption, 1))', fontWeight: 700, padding: '1px 5px', borderRadius: 4, flexShrink: 0,
                                     background: `${color}20`, color: color, textTransform: 'uppercase', letterSpacing: '0.03em',
                                   }}>
                                     {spanLabel}
                                   </span>
                                 )}
-                                <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {res.title}
+                                <span style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                                  {transitMeta ? <TransitTitle title={res.title} iconSize={11} /> : res.title}
                                 </span>
                                 {(() => {
                                   const { time: dispTime } = splitReservationDateTime(displayTime)
                                   const { time: endTime } = splitReservationDateTime(res.reservation_end_time)
                                   if (!dispTime && !endTime) return null
                                   return (
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 10, color: 'var(--text-faint)', fontWeight: 400, marginLeft: 6 }}>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', fontWeight: 400, marginLeft: 6 }}>
                                       <Clock size={9} strokeWidth={2} />
                                       {dispTime ? formatTime(dispTime, locale, timeFormat) : ''}
                                       {spanPhase === 'single' && endTime ? ` – ${formatTime(endTime, locale, timeFormat)}` : ''}
@@ -1992,13 +2095,44 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                                   )
                                 })()}
                               </div>
-                              {subtitle && (
-                                <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {transitMeta ? (
+                                <div style={{ display: 'flex', alignItems: 'center', marginTop: 3 }}>
+                                  <TransitLegChips legs={transitMeta.legs} size="sm" t={t} />
+                                </div>
+                              ) : subtitle && (
+                                <div style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {subtitle}
                                 </div>
                               )}
                             </div>
-                            {onToggleConnection && (!res.__leg || res.__leg.index === 0) && (res.endpoints || []).length >= 2 && (() => {
+                            {transitMeta && (() => {
+                              const expanded = expandedTransitIds.has(res.id)
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation()
+                                    setExpandedTransitIds(prev => {
+                                      const next = new Set(prev)
+                                      if (next.has(res.id)) next.delete(res.id); else next.add(res.id)
+                                      return next
+                                    })
+                                  }}
+                                  title={t(expanded ? 'common.collapse' : 'common.expand')}
+                                  aria-label={t(expanded ? 'common.collapse' : 'common.expand')}
+                                  style={{
+                                    flexShrink: 0, appearance: 'none', width: 26, height: 26, borderRadius: 6,
+                                    display: 'grid', placeItems: 'center', cursor: 'pointer', border: 'none',
+                                    background: 'transparent', color: 'var(--text-faint)',
+                                  }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)' }}
+                                >
+                                  {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </button>
+                              )
+                            })()}
+                            {!transitMeta && onToggleConnection && (!res.__leg || res.__leg.index === 0) && (res.endpoints || []).length >= 2 && (() => {
                               const active = visibleConnectionIds.includes(res.id)
                               return (
                                 <button
@@ -2022,7 +2156,12 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                               )
                             })()}
                           </div>
-                          {routeLegs[res.id] && <RouteConnector seg={routeLegs[res.id]} profile={routeProfile} />}
+                          {transitMeta && expandedTransitIds.has(res.id) && (
+                            <div style={{ margin: '2px 8px 4px', padding: '9px 10px 9px 12px', borderRadius: 6, border: `1px solid ${color}26`, background: `${color}05` }}>
+                              <TransitItineraryInline legs={transitMeta.legs} t={t} />
+                            </div>
+                          )}
+                          {routeLegs[day.id]?.[res.id] && <RouteConnector seg={routeLegs[day.id]![res.id]} profile={routeProfile} />}
                           </React.Fragment>
                         )
                       }
@@ -2110,11 +2249,11 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                             <NoteIcon size={13} strokeWidth={1.8} color="var(--text-muted)" />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
+                            <span style={{ fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 500, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
                               {note.text}
                             </span>
                             {note.time && (
-                              <div className="collab-note-md" style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-faint)', lineHeight: '1.3', marginTop: 2, wordBreak: 'break-word' }}><Markdown remarkPlugins={[remarkGfm]}>{note.time}</Markdown></div>
+                              <div className="collab-note-md" style={{ fontSize: 'calc(10.5px * var(--fs-scale-caption, 1))', fontWeight: 400, color: 'var(--text-faint)', lineHeight: '1.3', marginTop: 2, wordBreak: 'break-word' }}><Markdown remarkPlugins={[remarkGfm]}>{note.time}</Markdown></div>
                             )}
                           </div>
                           {canEditDays && <div className="note-edit-buttons" style={{ display: 'flex', gap: 1, flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' }}>
@@ -2130,8 +2269,8 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                       )
                     })
                   )}
-                  {isSelected && hotelLegs.bottom && (
-                    <HotelRouteConnector seg={hotelLegs.bottom.seg} name={hotelLegs.bottom.name} profile={routeProfile} placement="bottom" />
+                  {hotelLegs[day.id]?.bottom && (
+                    <HotelRouteConnector seg={hotelLegs[day.id]!.bottom!.seg} name={hotelLegs[day.id]!.bottom!.name} profile={routeProfile} placement="bottom" />
                   )}
                   {/* Drop-Zone am Listenende — immer vorhanden als Drop-Target */}
                   <div
@@ -2181,12 +2320,26 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                     <div style={{ padding: '10px 16px 12px', borderTop: '1px solid var(--border-faint)', display: 'flex', flexDirection: 'column', gap: 7 }}>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
                         <button
-                          onClick={() => onToggleRoute?.()}
-                          className={routeShown ? 'bg-accent text-accent-text' : 'bg-transparent text-content-secondary'}
+                          onClick={() => {
+                            if (showRouteToolsWhenExpanded) {
+                              // Mobile: toggle this day's inline leg distances in place.
+                              // Selecting the day would close the sheet, so we don't — the
+                              // distances between places appear right here instead (#1374).
+                              setExpandedRouteDayIds(prev => {
+                                const next = new Set(prev)
+                                next.has(day.id) ? next.delete(day.id) : next.add(day.id)
+                                return next
+                              })
+                            } else if (isSelected) { onToggleRoute?.() }
+                            // Desktop: the route is computed for the globally selected day,
+                            // so tapping Route on another day first points the selection here.
+                            else { onSelectDay(day.id, true); if (!routeShown) onToggleRoute?.() }
+                          }}
+                          className={routeActive ? 'bg-accent text-accent-text' : 'bg-transparent text-content-secondary'}
                           style={{
                             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                            padding: '6px 0', fontSize: 11, fontWeight: 600, borderRadius: 8,
-                            border: routeShown ? 'none' : '1px solid var(--border-faint)',
+                            padding: '6px 0', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 600, borderRadius: 8,
+                            border: routeActive ? 'none' : '1px solid var(--border-faint)',
                             cursor: 'pointer', fontFamily: 'inherit',
                           }}
                         >
@@ -2196,7 +2349,16 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         {/* Open the day's stops as a route in Google Maps (planned order). #1255 */}
                         <button
                           onClick={() => {
-                            const url = generateGoogleMapsUrl(getDayAssignments(day.id).map(a => a.place).filter(p => p?.lat != null && p?.lng != null) as { lat: number; lng: number }[])
+                            // Bookend the Google Maps route with the day's accommodation the
+                            // same way the drawn map route does (routeBookends is null when
+                            // "optimize from accommodation" is off), so hotels aren't dropped
+                            // from the exported route (#1372).
+                            const stops = getDayAssignments(day.id).map(a => a.place).filter(p => p?.lat != null && p?.lng != null) as { lat: number; lng: number }[]
+                            const morning = routeBookends?.morning?.place_lat != null && routeBookends?.morning?.place_lng != null
+                              ? { lat: routeBookends.morning.place_lat, lng: routeBookends.morning.place_lng } : null
+                            const evening = routeBookends?.evening?.place_lat != null && routeBookends?.evening?.place_lng != null
+                              ? { lat: routeBookends.evening.place_lat, lng: routeBookends.evening.place_lng } : null
+                            const url = generateGoogleMapsUrl([...(morning ? [morning] : []), ...stops, ...(evening ? [evening] : [])])
                             if (url) window.open(url, '_blank', 'noopener,noreferrer')
                           }}
                           aria-label={t('planner.openGoogleMaps')}
@@ -2217,7 +2379,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         </button>
                         <button onClick={() => handleOptimize(day.id)} className="bg-surface-hover text-content-secondary" style={{
                           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                          padding: '6px 0', fontSize: 11, fontWeight: 500, borderRadius: 8, border: 'none',
+                          padding: '6px 0', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontWeight: 500, borderRadius: 8, border: 'none',
                           cursor: 'pointer', fontFamily: 'inherit',
                         }}>
                           <RotateCcw size={12} strokeWidth={2} />
@@ -2245,7 +2407,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
                         </div>
                       </div>
                       {isSelected && routeInfo && (
-                        <div className="text-content-secondary bg-surface-hover" style={{ display: 'flex', justifyContent: 'center', gap: 12, fontSize: 12, borderRadius: 8, padding: '5px 10px' }}>
+                        <div className="text-content-secondary bg-surface-hover" style={{ display: 'flex', justifyContent: 'center', gap: 12, fontSize: 'calc(12px * var(--fs-scale-body, 1))', borderRadius: 8, padding: '5px 10px' }}>
                           <span>{routeInfo.distance}</span>
                           <span className="text-content-faint">·</span>
                           <span>{routeInfo.duration}</span>
@@ -2301,6 +2463,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
         transportDetail={transportDetail}
         setTransportDetail={setTransportDetail}
         onNavigateToFiles={onNavigateToFiles}
+        onEdit={canEditDays && onEditTransport ? (res) => { setTransportDetail(null); onEditTransport(res) } : undefined}
         t={t}
         locale={locale}
         timeFormat={timeFormat}

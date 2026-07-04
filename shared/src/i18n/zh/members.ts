@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': '添加失败',
   'members.removed': '成员已移除',
   'members.removeError': '移除失败',
+  'members.makeOwner': '设为所有者',
+  'members.confirmTransfer': '将所有权转移给 {name}？你将成为普通成员。',
+  'members.transferError': '转移所有权失败',
+  'members.guests': '访客',
+  'members.guest': '访客',
+  'members.guestsHint': '没有账户的人。可以为其分配费用、行李和任务，但他们无法登录。',
+  'members.addGuest': '添加访客',
+  'members.guestNamePlaceholder': '访客姓名',
+  'members.guestAdded': '已添加访客',
+  'members.guestAddError': '添加访客失败',
+  'members.guestRenameError': '重命名访客失败',
+  'members.guestRemoved': '已移除访客',
+  'members.confirmRemoveGuest': '移除此访客？其分配和费用分摊也将被移除。',
 };
 export default members;

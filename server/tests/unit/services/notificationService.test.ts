@@ -244,6 +244,28 @@ describe('send() — recipient resolution', () => {
     expect(recipients).not.toContain(actor.id);
   });
 
+  it('NSVC-007b — guests are never notified, on trip or user scope (#1362)', async () => {
+    const { user: owner } = createUser(testDb);
+    const { user: member } = createUser(testDb);
+    setNotificationChannels(testDb, 'none');
+
+    const tripId = (testDb.prepare('INSERT INTO trips (title, user_id) VALUES (?, ?)').run('Trip', owner.id)).lastInsertRowid as number;
+    testDb.prepare('INSERT INTO trip_members (trip_id, user_id) VALUES (?, ?)').run(tripId, member.id);
+    // A guest joined into the trip — assignable, but has no inbox.
+    const guestId = (testDb.prepare("INSERT INTO users (username, email, password_hash, role, is_guest) VALUES ('Guest', 'guest-x@guests.invalid', '', 'user', 1)").run()).lastInsertRowid as number;
+    testDb.prepare('INSERT INTO trip_members (trip_id, user_id) VALUES (?, ?)').run(tripId, guestId);
+
+    await send({ event: 'booking_change', actorId: owner.id, scope: 'trip', targetId: tripId, params: { trip: 'Trip', actor: 'Owner', booking: 'Hotel', type: 'hotel', tripId: String(tripId) } });
+    let recipients = (testDb.prepare('SELECT recipient_id FROM notifications').all() as { recipient_id: number }[]).map(r => r.recipient_id);
+    expect(recipients).toContain(member.id);
+    expect(recipients).not.toContain(guestId);
+
+    // Even a direct user-scope notification (e.g. a todo assigned to the guest) is dropped.
+    await send({ event: 'vacay_invite', actorId: owner.id, scope: 'user', targetId: guestId, params: { actor: 'owner@test.com', planId: '1' } });
+    recipients = (testDb.prepare('SELECT recipient_id FROM notifications').all() as { recipient_id: number }[]).map(r => r.recipient_id);
+    expect(recipients).not.toContain(guestId);
+  });
+
   it('NSVC-008 — user scope sends to exactly one user', async () => {
     const { user: target } = createUser(testDb);
     const { user: other } = createUser(testDb);

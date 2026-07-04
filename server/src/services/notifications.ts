@@ -93,7 +93,8 @@ export function getMcpSafeUrl(): string {
 }
 
 export function getUserEmail(userId: number): string | null {
-  return (db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as { email: string } | undefined)?.email || null;
+  // Defense-in-depth (#1362): a guest's synthetic email must never be emailed.
+  return (db.prepare('SELECT email FROM users WHERE id = ? AND COALESCE(is_guest, 0) = 0').get(userId) as { email: string } | undefined)?.email || null;
 }
 
 export function getUserLanguage(userId: number): string {

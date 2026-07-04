@@ -3,12 +3,14 @@ import { useTripStore } from '../../store/tripStore'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import {
-  CheckSquare, Square, Trash2, Plus, Pencil, Package,
+  CheckSquare, Square, Trash2, Plus, Pencil, Package, GripVertical, UserRound, Users, HandHelping,
 } from 'lucide-react'
 import type { PackingItem, PackingBag } from '../../types'
 import { katColor } from './packingListPanel.helpers'
 import { PACKING_PLACEHOLDER_NAME } from './packingListPanel.constants'
 import { QuantityInput } from './PackingListPanelQuantityInput'
+import PackingShareControl from './PackingShareControl'
+import type { TripMember } from './usePackingListPanel'
 
 interface ArtikelZeileProps {
   item: PackingItem
@@ -20,9 +22,25 @@ interface ArtikelZeileProps {
   bags?: PackingBag[]
   onCreateBag: (name: string) => Promise<PackingBag | undefined>
   canEdit?: boolean
+  // Three-tier sharing (#858): members + handlers for the per-item share control.
+  tripMembers?: TripMember[]
+  currentUserId?: number
+  onSetSharing?: (id: number, visibility: 'common' | 'personal' | 'shared', recipientIds: number[]) => void
+  onClone?: (id: number) => void
+  onJoin?: (id: number) => void
+  onLeave?: (id: number, userId: number) => void
+  // Drag-to-reorder (#969) — wired by the category group, which owns the order.
+  drag?: {
+    isDragging: boolean
+    isOver: boolean
+    onStart: (id: number) => void
+    onOver: (id: number) => void
+    onEnd: () => void
+    onDrop: (targetId: number) => void
+  }
 }
 
-export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDelete, bagTrackingEnabled, bags = [], onCreateBag, canEdit = true }: ArtikelZeileProps) {
+export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDelete, bagTrackingEnabled, bags = [], onCreateBag, canEdit = true, tripMembers = [], currentUserId, onSetSharing, onClone, onJoin, onLeave, drag }: ArtikelZeileProps) {
   const isPlaceholder = item.name === PACKING_PLACEHOLDER_NAME
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(isPlaceholder ? '' : item.name)
@@ -34,6 +52,14 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
   const { togglePackingItem, updatePackingItem, deletePackingItem } = useTripStore()
   const toast = useToast()
   const { t } = useTranslation()
+
+  // Three-tier sharing display (#858).
+  const sharedToMe = !!item.is_private && item.owner_id != null && item.owner_id !== currentUserId
+  const recipients = item.recipients || []
+  const sharedByMe = !!item.is_private && item.owner_id === currentUserId && recipients.length > 0
+  const broughtBy = !item.is_private && item.owner_username ? item.owner_username : null
+  const contributors = item.contributors || []
+  const canShare = canEdit && !isPlaceholder && !!onSetSharing
 
   const handleToggle = () => togglePackingItem(tripId, item.id, !item.checked)
 
@@ -58,18 +84,36 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
     catch { toast.error(t('common.error')) }
   }
 
+  const canDrag = canEdit && !isPlaceholder && !!drag
+
   return (
     <div
       className="group"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowCatPicker(false); setShowBagPicker(false) }}
+      onDragOver={canDrag ? (e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; drag!.onOver(item.id) }) : undefined}
+      onDragLeave={canDrag ? (e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) drag!.onOver(-1) }) : undefined}
+      onDrop={canDrag ? (e => { e.preventDefault(); e.stopPropagation(); drag!.onDrop(item.id) }) : undefined}
       style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '6px 10px', borderRadius: 10, position: 'relative',
         background: hovered ? 'var(--bg-secondary)' : 'transparent',
-        transition: 'background 0.1s',
+        opacity: drag?.isDragging ? 0.4 : 1,
+        boxShadow: drag?.isOver ? 'inset 3px 0 0 0 var(--accent)' : 'none',
+        transition: 'background 0.1s, opacity 0.15s',
       }}
     >
+      {canDrag && (
+        <div
+          draggable
+          onDragStart={e => { e.stopPropagation(); e.dataTransfer.effectAllowed = 'move'; drag!.onStart(item.id) }}
+          onDragEnd={() => drag!.onEnd()}
+          title=""
+          style={{ cursor: 'grab', display: 'flex', alignItems: 'center', color: 'var(--text-faint)', flexShrink: 0, opacity: hovered ? 1 : 0.35, transition: 'opacity 0.15s' }}
+        >
+          <GripVertical size={13} />
+        </div>
+      )}
       <button onClick={handleToggle} style={{
         flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', padding: 0, position: 'relative',
         width: 18, height: 18,
@@ -97,13 +141,13 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
           onChange={e => setEditName(e.target.value)}
           onBlur={handleSaveName}
           onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') { setEditing(false); setEditName(isPlaceholder ? '' : item.name) } }}
-          style={{ flex: 1, fontSize: 13.5, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', outline: 'none', fontFamily: 'inherit' }}
+          style={{ flex: 1, fontSize: 'calc(13.5px * var(--fs-scale-body, 1))', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', outline: 'none', fontFamily: 'inherit' }}
         />
       ) : (
         <span
           onClick={() => canEdit && !item.checked && setEditing(true)}
           style={{
-            flex: 1, fontSize: 13.5,
+            flex: 1, fontSize: 'calc(13.5px * var(--fs-scale-body, 1))',
             cursor: !canEdit || item.checked ? 'default' : 'text',
             color: isPlaceholder ? 'var(--text-faint)' : (item.checked ? 'var(--text-faint)' : 'var(--text-primary)'),
             transition: 'color 200ms cubic-bezier(0.23,1,0.32,1)',
@@ -111,6 +155,26 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
           }}
         >
           {item.name}
+        </span>
+      )}
+
+      {/* Sharing badges (#858 three-tier) */}
+      {!isPlaceholder && sharedToMe && (
+        <span title={t('packing.takenCareOf', { name: item.owner_username || '' })}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', padding: '1px 7px', borderRadius: 99 }}>
+          <HandHelping size={10} /> {t('packing.takenCareOf', { name: item.owner_username || '' })}
+        </span>
+      )}
+      {!isPlaceholder && sharedByMe && (
+        <span title={recipients.map(r => r.username).join(', ')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '1px 7px', borderRadius: 99 }}>
+          <UserRound size={10} /> {t('packing.sharedWithCount', { count: recipients.length })}
+        </span>
+      )}
+      {!isPlaceholder && broughtBy && (
+        <span title={t('packing.broughtBy', { name: broughtBy })}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0, fontSize: 'calc(10px * var(--fs-scale-caption, 1))', fontWeight: 600, color: 'var(--text-faint)', padding: '1px 4px' }}>
+          <Users size={10} /> {broughtBy}{contributors.length > 0 ? ` +${contributors.length}` : ''}
         </span>
       )}
 
@@ -132,9 +196,9 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
                 try { await updatePackingItem(tripId, item.id, { weight_grams: v }) } catch { toast.error(t('packing.toast.saveError')) }
               }}
               placeholder="—"
-              style={{ width: 36, border: 'none', fontSize: 12, textAlign: 'right', fontFamily: 'inherit', outline: 'none', color: 'var(--text-secondary)', background: 'transparent', padding: 0 }}
+              style={{ width: 36, border: 'none', fontSize: 'calc(12px * var(--fs-scale-body, 1))', textAlign: 'right', fontFamily: 'inherit', outline: 'none', color: 'var(--text-secondary)', background: 'transparent', padding: 0 }}
             />
-            <span style={{ fontSize: 10, color: 'var(--text-faint)', userSelect: 'none' }}>g</span>
+            <span style={{ fontSize: 'calc(10px * var(--fs-scale-caption, 1))', color: 'var(--text-faint)', userSelect: 'none' }}>g</span>
           </div>
           <div style={{ position: 'relative' }}>
             <button
@@ -155,7 +219,7 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
               }}>
                 {item.bag_id && (
                   <button onClick={async () => { setShowBagPicker(false); try { await updatePackingItem(tripId, item.id, { bag_id: null }) } catch { toast.error(t('packing.toast.saveError')) } }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '6px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--text-faint)', borderRadius: 7 }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '6px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontFamily: 'inherit', color: 'var(--text-faint)', borderRadius: 7 }}>
                     <span style={{ width: 10, height: 10, borderRadius: '50%', border: '2px dashed var(--border-primary)' }} />
                     {t('packing.noBag')}
                   </button>
@@ -165,7 +229,7 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
                     style={{
                       display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '6px 10px',
                       background: item.bag_id === b.id ? 'var(--bg-tertiary)' : 'none',
-                      border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--text-secondary)', borderRadius: 7,
+                      border: 'none', cursor: 'pointer', fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontFamily: 'inherit', color: 'var(--text-secondary)', borderRadius: 7,
                     }}
                     onMouseEnter={e => { if (item.bag_id !== b.id) e.currentTarget.style.background = 'var(--bg-tertiary)' }}
                     onMouseLeave={e => { if (item.bag_id !== b.id) e.currentTarget.style.background = 'none' }}>
@@ -187,7 +251,7 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
                           if (e.key === 'Escape') { setBagInlineCreate(false); setBagInlineName('') }
                         }}
                         placeholder={t('packing.bagName')}
-                        style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+                        style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontFamily: 'inherit', outline: 'none' }} />
                       <button onClick={async () => {
                         if (bagInlineName.trim()) {
                           const newBag = await onCreateBag(bagInlineName.trim())
@@ -201,7 +265,7 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
                     </div>
                   ) : (
                     <button onClick={() => setBagInlineCreate(true)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', padding: '5px 6px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', color: 'var(--text-faint)', borderRadius: 7 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', padding: '5px 6px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'calc(11px * var(--fs-scale-caption, 1))', fontFamily: 'inherit', color: 'var(--text-faint)', borderRadius: 7 }}
                       onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
                       onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>
                       <Plus size={11} /> {t('packing.addBag')}
@@ -215,12 +279,12 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
       )}
 
       {canEdit && (
-      <div className="sm:opacity-0 sm:group-hover:opacity-100" style={{ display: 'flex', gap: 2, alignItems: 'center', transition: 'opacity 0.12s', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'center', flexShrink: 0 }}>
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => setShowCatPicker(p => !p)}
             title={t('packing.changeCategory')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, display: 'flex', alignItems: 'center', color: 'var(--text-faint)', fontSize: 10, gap: 2 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, display: 'flex', alignItems: 'center', color: 'var(--text-faint)', fontSize: 'calc(10px * var(--fs-scale-caption, 1))', gap: 2 }}
           >
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: katColor(item.category || t('packing.defaultCategory'), categories), display: 'inline-block' }} />
           </button>
@@ -234,7 +298,7 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
                 <button key={cat} onClick={() => handleCatChange(cat)} style={{
                   display: 'flex', alignItems: 'center', gap: 7, width: '100%',
                   padding: '6px 10px', background: cat === (item.category || t('packing.defaultCategory')) ? 'var(--bg-tertiary)' : 'none',
-                  border: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit',
+                  border: 'none', cursor: 'pointer', fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontFamily: 'inherit',
                   color: 'var(--text-secondary)', borderRadius: 7, textAlign: 'left',
                 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: katColor(cat, categories), flexShrink: 0 }} />
@@ -244,6 +308,18 @@ export function ArtikelZeile({ item, tripId, categories, onCategoryChange, onDel
             </div>
           )}
         </div>
+
+        {canShare && onClone && onJoin && onLeave && (
+          <PackingShareControl
+            item={item}
+            tripMembers={tripMembers}
+            currentUserId={currentUserId}
+            onSetSharing={onSetSharing!}
+            onClone={onClone}
+            onJoin={onJoin}
+            onLeave={onLeave}
+          />
+        )}
 
         <button onClick={() => setEditing(true)} title={t('common.rename')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 4px', borderRadius: 6, display: 'flex', color: 'var(--text-faint)' }}
           onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--text-faint)'}>

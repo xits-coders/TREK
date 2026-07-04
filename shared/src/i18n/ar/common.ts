@@ -7,6 +7,7 @@ const common: TranslationStrings = {
   'common.cancel': 'إلغاء',
   'common.clear': 'مسح',
   'common.delete': 'حذف',
+  'common.preview': 'معاينة',
   'common.edit': 'تعديل',
   'common.add': 'إضافة',
   'common.loading': 'جارٍ التحميل...',
@@ -50,5 +51,17 @@ const common: TranslationStrings = {
   'common.justNow': 'just now', // en-fallback
   'common.hoursAgo': '{count}h ago', // en-fallback
   'common.daysAgo': '{count}d ago', // en-fallback
+  'common.datepicker.prevMonth': 'Previous month', // en-fallback
+  'common.datepicker.nextMonth': 'Next month', // en-fallback
+  'common.datepicker.prevYear': 'Previous year', // en-fallback
+  'common.datepicker.nextYear': 'Next year', // en-fallback
+  'common.datepicker.prevYears': 'Previous years', // en-fallback
+  'common.datepicker.nextYears': 'Next years', // en-fallback
+  'common.datepicker.selectMonth': 'Select month', // en-fallback
+  'common.datepicker.selectYear': 'Select year', // en-fallback
+  'common.datepicker.enterManually': 'Enter date manually', // en-fallback
+  'common.datepicker.typeDate': 'Type a date', // en-fallback
+  'common.datepicker.dialog': 'Date picker', // en-fallback
+  'common.datepicker.clearDate': 'Clear date', // en-fallback
 };
 export default common;

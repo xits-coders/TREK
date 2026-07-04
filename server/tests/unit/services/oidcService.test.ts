@@ -42,7 +42,7 @@ vi.mock('../../../src/config', () => ({
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { resetTestDb } from '../../helpers/test-db';
-import { createUser } from '../../helpers/factories';
+import { createUser, createTrip } from '../../helpers/factories';
 import {
   createState,
   consumeState,
@@ -463,6 +463,81 @@ describe('findOrCreateUser', () => {
     // Invite used_count must remain 1 (token was treated as invalid)
     const token = testDb.prepare("SELECT used_count FROM invite_tokens WHERE token = 'tok-full'").get() as any;
     expect(token.used_count).toBe(1);
+  });
+
+  // ── OIDC picture claim → avatar (#1399) ──────────────────────────────────
+
+  it('OIDC-SVC-040: new user stores the https picture claim as their avatar', () => {
+    const result = findOrCreateUser(
+      { sub: 'sub-pic-1', email: 'pic1@example.com', name: 'Pic One', picture: 'https://idp.example.com/u/pic1.png' },
+      MOCK_CONFIG
+    );
+    expect('user' in result).toBe(true);
+    const row = testDb.prepare("SELECT avatar FROM users WHERE email = 'pic1@example.com'").get() as any;
+    expect(row.avatar).toBe('https://idp.example.com/u/pic1.png');
+  });
+
+  it('OIDC-SVC-041: new user with a non-https picture claim stores no avatar', () => {
+    findOrCreateUser(
+      { sub: 'sub-pic-2', email: 'pic2@example.com', name: 'Pic Two', picture: 'http://idp.example.com/u/pic2.png' },
+      MOCK_CONFIG
+    );
+    const row = testDb.prepare("SELECT avatar FROM users WHERE email = 'pic2@example.com'").get() as any;
+    expect(row.avatar).toBeNull();
+  });
+
+  it('OIDC-SVC-042: existing user with no avatar gets the OIDC picture', () => {
+    const { user } = createUser(testDb, { email: 'pic3@example.com' });
+    testDb.prepare('UPDATE users SET oidc_sub = ?, oidc_issuer = ?, avatar = NULL WHERE id = ?')
+      .run('sub-pic-3', MOCK_CONFIG.issuer, user.id);
+    findOrCreateUser(
+      { sub: 'sub-pic-3', email: 'pic3@example.com', name: 'Pic Three', picture: 'https://idp.example.com/u/pic3.png' },
+      MOCK_CONFIG
+    );
+    const row = testDb.prepare('SELECT avatar FROM users WHERE id = ?').get(user.id) as any;
+    expect(row.avatar).toBe('https://idp.example.com/u/pic3.png');
+  });
+
+  it('OIDC-SVC-043: a custom uploaded avatar is never overwritten by the OIDC picture', () => {
+    const { user } = createUser(testDb, { email: 'pic4@example.com' });
+    testDb.prepare('UPDATE users SET oidc_sub = ?, oidc_issuer = ?, avatar = ? WHERE id = ?')
+      .run('sub-pic-4', MOCK_CONFIG.issuer, 'uploaded-abc.jpg', user.id);
+    findOrCreateUser(
+      { sub: 'sub-pic-4', email: 'pic4@example.com', name: 'Pic Four', picture: 'https://idp.example.com/u/pic4.png' },
+      MOCK_CONFIG
+    );
+    const row = testDb.prepare('SELECT avatar FROM users WHERE id = ?').get(user.id) as any;
+    expect(row.avatar).toBe('uploaded-abc.jpg');
+  });
+
+  it('OIDC-SVC-044: a previously stored OIDC picture URL is refreshed on next login', () => {
+    const { user } = createUser(testDb, { email: 'pic5@example.com' });
+    testDb.prepare('UPDATE users SET oidc_sub = ?, oidc_issuer = ?, avatar = ? WHERE id = ?')
+      .run('sub-pic-5', MOCK_CONFIG.issuer, 'https://idp.example.com/u/old.png', user.id);
+    findOrCreateUser(
+      { sub: 'sub-pic-5', email: 'pic5@example.com', name: 'Pic Five', picture: 'https://idp.example.com/u/new.png' },
+      MOCK_CONFIG
+    );
+    const row = testDb.prepare('SELECT avatar FROM users WHERE id = ?').get(user.id) as any;
+    expect(row.avatar).toBe('https://idp.example.com/u/new.png');
+  });
+
+  it('OIDC-SVC-045: a trip-bound invite auto-adds the new SSO user as a trip member (#1402)', () => {
+    const { user: admin } = createUser(testDb, { role: 'admin' });
+    const trip = createTrip(testDb, admin.id);
+    testDb.prepare(
+      'INSERT INTO invite_tokens (token, max_uses, used_count, expires_at, created_by, trip_id) VALUES (?, 5, 0, NULL, ?, ?)'
+    ).run('inv-trip-join', admin.id, trip.id);
+
+    const result = findOrCreateUser(
+      { sub: 'sub-trip-join', email: 'joiner@example.com', name: 'Joiner' },
+      MOCK_CONFIG,
+      'inv-trip-join'
+    );
+    expect('user' in result).toBe(true);
+    const uid = (result as { user: any }).user.id;
+    const member = testDb.prepare('SELECT * FROM trip_members WHERE trip_id = ? AND user_id = ?').get(trip.id, uid);
+    expect(member).toBeTruthy();
   });
 });
 

@@ -14,6 +14,7 @@ export interface TodoSlice {
   updateTodoItem: (tripId: number | string, id: number, data: TodoUpdateItemRequest) => Promise<TodoItem>
   deleteTodoItem: (tripId: number | string, id: number) => Promise<void>
   toggleTodoItem: (tripId: number | string, id: number, checked: boolean) => Promise<void>
+  reorderTodoItems: (tripId: number | string, orderedIds: number[]) => Promise<void>
 }
 
 export const createTodoSlice = (set: SetState, get: GetState): TodoSlice => ({
@@ -67,6 +68,24 @@ export const createTodoSlice = (set: SetState, get: GetState): TodoSlice => ({
         )
       }))
       notify(getApiErrorMessage(err, 'Error updating todo'), 'error')
+    }
+  },
+
+  reorderTodoItems: async (tripId, orderedIds) => {
+    const prev = get().todoItems
+    set(state => {
+      const byId = new Map(state.todoItems.map(i => [i.id, i]))
+      const reordered = orderedIds
+        .map((id, idx): TodoItem | null => { const item = byId.get(id); return item ? { ...item, sort_order: idx } : null })
+        .filter((i): i is TodoItem => i !== null)
+      const remaining = state.todoItems.filter(i => !orderedIds.includes(i.id))
+      return { todoItems: [...reordered, ...remaining] }
+    })
+    try {
+      await todoApi.reorder(tripId, orderedIds)
+    } catch (err: unknown) {
+      set({ todoItems: prev })
+      notify(getApiErrorMessage(err, 'Error reordering todos'), 'error')
     }
   },
 })

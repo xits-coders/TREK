@@ -1,5 +1,7 @@
 import path from 'path';
+import { avatarUrl } from './avatarUrl';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { db, isOwner } from '../db/database';
 import { Trip, User } from '../types';
 import { listDays, listAccommodations } from './dayService';
@@ -347,8 +349,10 @@ export function getTripOwner(tripId: string | number): { user_id: number } | und
 // ── Members ───────────────────────────────────────────────────────────────
 
 export function listMembers(tripId: string | number, tripOwnerId: number) {
+  // u.is_guest rides along (#1362) so guests stay assignable everywhere a member is,
+  // while the UI can badge them and suppress owner-only actions. The owner is never a guest.
   const members = db.prepare(`
-    SELECT u.id, u.username, u.email, u.avatar,
+    SELECT u.id, u.username, u.email, u.avatar, u.is_guest,
       CASE WHEN u.id = ? THEN 'owner' ELSE 'member' END as role,
       m.added_at,
       ib.username as invited_by_username
@@ -357,13 +361,13 @@ export function listMembers(tripId: string | number, tripOwnerId: number) {
     LEFT JOIN users ib ON ib.id = m.invited_by
     WHERE m.trip_id = ?
     ORDER BY m.added_at ASC
-  `).all(tripOwnerId, tripId) as { id: number; username: string; email: string; avatar: string | null; role: string; added_at: string; invited_by_username: string | null }[];
+  `).all(tripOwnerId, tripId) as { id: number; username: string; email: string; avatar: string | null; is_guest: number; role: string; added_at: string; invited_by_username: string | null }[];
 
   const owner = db.prepare('SELECT id, username, email, avatar FROM users WHERE id = ?').get(tripOwnerId) as Pick<User, 'id' | 'username' | 'email' | 'avatar'>;
 
   return {
-    owner: { ...owner, role: 'owner', avatar_url: owner.avatar ? `/uploads/avatars/${owner.avatar}` : null },
-    members: members.map(m => ({ ...m, avatar_url: m.avatar ? `/uploads/avatars/${m.avatar}` : null })),
+    owner: { ...owner, role: 'owner', is_guest: false, avatar_url: avatarUrl(owner) },
+    members: members.map(m => ({ ...m, is_guest: !!m.is_guest, avatar_url: avatarUrl(m) })),
   };
 }
 
@@ -376,8 +380,10 @@ export interface AddMemberResult {
 export function addMember(tripId: string | number, identifier: string, tripOwnerId: number, invitedByUserId: number): AddMemberResult {
   if (!identifier) throw new ValidationError('Email or username required');
 
+  // Guests (#1362) are not invitable accounts — exclude them so a trip-scoped guest
+  // can never be resolved (and re-attached to another trip) through the invite box.
   const target = db.prepare(
-    'SELECT id, username, email, avatar FROM users WHERE email = ? OR username = ?'
+    'SELECT id, username, email, avatar FROM users WHERE (email = ? OR username = ?) AND COALESCE(is_guest, 0) = 0'
   ).get(identifier.trim(), identifier.trim()) as Pick<User, 'id' | 'username' | 'email' | 'avatar'> | undefined;
 
   if (!target) throw new NotFoundError('User not found');
@@ -393,7 +399,7 @@ export function addMember(tripId: string | number, identifier: string, tripOwner
   const tripInfo = db.prepare('SELECT title FROM trips WHERE id = ?').get(tripId) as { title: string } | undefined;
 
   return {
-    member: { ...target, role: 'member', avatar_url: target.avatar ? `/uploads/avatars/${target.avatar}` : null },
+    member: { ...target, role: 'member', avatar_url: avatarUrl(target) },
     targetUserId: target.id,
     tripTitle: tripInfo?.title || 'Untitled',
   };
@@ -403,7 +409,155 @@ export function removeMember(tripId: string | number, targetUserId: number) {
   db.prepare('DELETE FROM trip_members WHERE trip_id = ? AND user_id = ?').run(tripId, targetUserId);
 }
 
+export interface TransferOwnershipResult {
+  tripTitle: string;
+  fromEmail: string;
+  toEmail: string;
+}
+
+/**
+ * Hand a trip over to one of its existing members (#973). The new owner must
+ * already be a member; afterwards they hold `trips.user_id` and the former owner
+ * becomes a regular member, so nobody loses access. Runs in a transaction so the
+ * owner pointer and the membership rows never diverge.
+ */
+export function transferOwnership(
+  tripId: string | number,
+  newOwnerId: number,
+  currentOwnerId: number,
+): TransferOwnershipResult {
+  const trip = db.prepare('SELECT id, title, user_id FROM trips WHERE id = ?').get(tripId) as { id: number; title: string; user_id: number } | undefined;
+  if (!trip) throw new NotFoundError('Trip not found');
+  if (trip.user_id !== currentOwnerId) throw new ValidationError('Only the owner can transfer ownership');
+  if (newOwnerId === currentOwnerId) throw new ValidationError('You already own this trip');
+
+  const newOwner = db.prepare('SELECT id, email, is_guest FROM users WHERE id = ?').get(newOwnerId) as { id: number; email: string; is_guest?: number } | undefined;
+  if (!newOwner) throw new NotFoundError('User not found');
+  // A guest (#1362) can never log in, so it must never become the owner of a trip.
+  if (newOwner.is_guest) throw new ValidationError('Cannot transfer ownership to a guest');
+
+  const isMember = db.prepare('SELECT id FROM trip_members WHERE trip_id = ? AND user_id = ?').get(tripId, newOwnerId);
+  if (!isMember) throw new ValidationError('New owner must be a trip member');
+
+  const fromEmail = (db.prepare('SELECT email FROM users WHERE id = ?').get(currentOwnerId) as { email: string } | undefined)?.email || '';
+
+  const run = db.transaction(() => {
+    db.prepare('UPDATE trips SET user_id = ? WHERE id = ?').run(newOwnerId, tripId);
+    // The new owner is no longer a plain member…
+    db.prepare('DELETE FROM trip_members WHERE trip_id = ? AND user_id = ?').run(tripId, newOwnerId);
+    // …and the former owner keeps access as a member.
+    db.prepare('INSERT OR IGNORE INTO trip_members (trip_id, user_id, invited_by) VALUES (?, ?, ?)').run(tripId, currentOwnerId, newOwnerId);
+  });
+  run();
+
+  return { tripTitle: trip.title, fromEmail, toEmail: newOwner.email };
+}
+
+// ── Guest members (#1362) ───────────────────────────────────────────────────
+//
+// A guest is a credential-less users row (is_guest=1) joined into trip_members, so
+// it is assignable everywhere a real member is (budget splits, packing, to-dos, day
+// participants) yet can never authenticate (the auth/global-list guards exclude
+// is_guest=1). The display name lives in users.username so every existing JOIN that
+// renders a member name shows the guest correctly; a synthetic, non-deliverable
+// email keeps the UNIQUE/NOT NULL constraints satisfied.
+
+export interface GuestMember {
+  id: number;
+  username: string;
+  email: string;
+  role: 'member';
+  is_guest: true;
+  avatar_url: null;
+}
+
+/** username is UNIQUE across all users — keep the typed name but disambiguate guests
+ *  that happen to share it (e.g. two "Anna"s) with a numeric suffix. */
+function uniqueGuestUsername(name: string, excludeId?: number): string {
+  let candidate = name;
+  let n = 2;
+  const probe = excludeId != null
+    ? db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?')
+    : db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)');
+  while (excludeId != null ? probe.get(candidate, excludeId) : probe.get(candidate)) {
+    candidate = `${name} ${n++}`;
+  }
+  return candidate;
+}
+
+export function createGuest(tripId: string | number, name: string, invitedByUserId: number): { member: GuestMember } {
+  const display = (name || '').trim();
+  if (!display) throw new ValidationError('Guest name is required');
+  if (display.length > 50) throw new ValidationError('Guest name must be 50 characters or fewer');
+
+  const email = `guest-${randomUUID()}@guests.invalid`;
+  const username = uniqueGuestUsername(display);
+
+  const create = db.transaction(() => {
+    const res = db.prepare(
+      "INSERT INTO users (username, email, password_hash, role, is_guest) VALUES (?, ?, '', 'user', 1)"
+    ).run(username, email);
+    const guestId = Number(res.lastInsertRowid);
+    db.prepare('INSERT INTO trip_members (trip_id, user_id, invited_by) VALUES (?, ?, ?)').run(tripId, guestId, invitedByUserId);
+    return guestId;
+  });
+  const guestId = create();
+
+  return { member: { id: guestId, username, email, role: 'member', is_guest: true, avatar_url: null } };
+}
+
+/** Confirms a user id is a guest of THIS trip, so guest mutations stay trip-scoped. */
+function guestOfTrip(tripId: string | number, guestUserId: number): boolean {
+  return !!db.prepare(
+    'SELECT u.id FROM users u JOIN trip_members m ON m.user_id = u.id WHERE u.id = ? AND m.trip_id = ? AND u.is_guest = 1'
+  ).get(guestUserId, tripId);
+}
+
+export function renameGuest(tripId: string | number, guestUserId: number, name: string): boolean {
+  const display = (name || '').trim();
+  if (!display) throw new ValidationError('Guest name is required');
+  if (display.length > 50) throw new ValidationError('Guest name must be 50 characters or fewer');
+  if (!guestOfTrip(tripId, guestUserId)) return false;
+
+  const username = uniqueGuestUsername(display, guestUserId);
+  db.prepare('UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_guest = 1').run(username, guestUserId);
+  return true;
+}
+
+export function deleteGuest(tripId: string | number, guestUserId: number): boolean {
+  if (!guestOfTrip(tripId, guestUserId)) return false;
+  // Deleting the guest's users row cascades its membership and every assignment join
+  // (trip_members, budget/packing/assignment links) via the ON DELETE foreign keys.
+  db.prepare('DELETE FROM users WHERE id = ? AND is_guest = 1').run(guestUserId);
+  return true;
+}
+
 // ── ICS export ────────────────────────────────────────────────────────────
+
+// RFC 5545 §3.1: content lines longer than 75 octets must be folded with a CRLF
+// followed by a single leading space. We fold on UTF-8 *octet* boundaries and
+// never split a multi-byte codepoint, so non-ASCII titles/notes (accents, CJK,
+// emoji) stay intact. Applied to the whole calendar, so both the one-time
+// download and the subscribable feed emit spec-compliant output.
+function foldICS(ics: string): string {
+  const foldLine = (line: string): string => {
+    const bytes = Buffer.from(line, 'utf8');
+    if (bytes.length <= 75) return line;
+    const parts: Buffer[] = [];
+    let start = 0;
+    let limit = 75; // first physical line may use 75 octets
+    while (start < bytes.length) {
+      let end = Math.min(start + limit, bytes.length);
+      // Back off so we never cut a multi-byte UTF-8 sequence (0x80–0xBF = continuation byte).
+      while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
+      parts.push(bytes.subarray(start, end));
+      start = end;
+      limit = 74; // continuation lines spend one octet on the leading space
+    }
+    return parts.map((b, i) => (i === 0 ? '' : ' ') + b.toString('utf8')).join('\r\n');
+  };
+  return ics.split('\r\n').map(foldLine).join('\r\n');
+}
 
 export function exportICS(tripId: string | number): { ics: string; filename: string } {
   const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(tripId) as any;
@@ -599,7 +753,7 @@ export function exportICS(tripId: string | number): { ics: string; filename: str
   ics += 'END:VCALENDAR\r\n';
 
   const safeFilename = (trip.title || 'trek-trip').replace(/["\r\n]/g, '').replace(/[^\w\s.-]/g, '_');
-  return { ics, filename: `${safeFilename}.ics` };
+  return { ics: foldICS(ics), filename: `${safeFilename}.ics` };
 }
 
 // ── Copy / duplicate ─────────────────────────────────────────────────────
@@ -733,8 +887,8 @@ export function copyTripById(sourceTripId: string | number, newOwnerId: number, 
 
     const oldPacking = db.prepare('SELECT * FROM packing_items WHERE trip_id = ?').all(sourceTripId) as any[];
     const insertPacking = db.prepare(`
-      INSERT INTO packing_items (trip_id, name, checked, category, sort_order, weight_grams, bag_id)
-      VALUES (?, ?, 0, ?, ?, ?, ?)
+      INSERT INTO packing_items (trip_id, name, checked, category, sort_order, weight_grams, bag_id, updated_at)
+      VALUES (?, ?, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     for (const p of oldPacking) {
       insertPacking.run(newTripId, p.name, p.category, p.sort_order, p.weight_grams,

@@ -1,4 +1,5 @@
 import React from 'react'
+import CustomSelect from '../../components/shared/CustomSelect'
 import { Shield, Trash2, Edit2, UserPlus, Link2, Copy, Plus } from 'lucide-react'
 import Modal from '../../components/shared/Modal'
 import PermissionsPanel from '../../components/Admin/PermissionsPanel'
@@ -18,7 +19,7 @@ export default function AdminUsersTab({ admin, t, locale }: AdminUsersTabProps):
     hour12, currentUser,
     users, isLoading,
     setShowCreateUser,
-    invites, showCreateInvite, setShowCreateInvite, inviteForm, setInviteForm,
+    invites, inviteTrips, showCreateInvite, setShowCreateInvite, inviteForm, setInviteForm,
     copyInviteLink, handleCreateInvite, handleDeleteInvite,
     handleEditUser, handleDeleteUser,
   } = admin
@@ -163,6 +164,7 @@ export default function AdminUsersTab({ admin, t, locale }: AdminUsersTabProps):
                     <div className="text-xs text-slate-400 mt-0.5">
                       {inv.used_count}/{inv.max_uses === 0 ? '∞' : inv.max_uses} {t('admin.invite.uses')}
                       {inv.expires_at && ` · ${t('admin.invite.expiresAt')} ${new Date(inv.expires_at).toLocaleDateString(locale)}`}
+                      {inv.trip_title && ` · ${t('admin.invite.boundTo', { trip: inv.trip_title })}`}
                       {` · ${t('admin.invite.createdBy')} ${inv.created_by_name}`}
                     </div>
                   </div>
@@ -220,6 +222,22 @@ export default function AdminUsersTab({ admin, t, locale }: AdminUsersTabProps):
               ))}
             </div>
           </div>
+          {inviteTrips.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{t('admin.invite.tripLabel')}</label>
+              <CustomSelect
+                value={inviteForm.trip_id}
+                onChange={v => setInviteForm(f => ({ ...f, trip_id: v === '' ? '' : Number(v) }))}
+                options={[
+                  { value: '', label: t('admin.invite.tripNone') },
+                  ...inviteTrips.map(tr => ({ value: tr.id, label: tr.title })),
+                ]}
+                searchable={inviteTrips.length > 8}
+                placeholder={t('admin.invite.tripNone')}
+              />
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">{t('admin.invite.tripHint')}</p>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
             <button onClick={() => setShowCreateInvite(false)} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700">{t('common.cancel')}</button>
             <button onClick={handleCreateInvite} className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-700">{t('admin.invite.createAndCopy')}</button>

@@ -44,7 +44,7 @@ export function registerPackingTools(server: McpServer, userId: number, scopes: 
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('packing_edit', tripId, userId)) return permissionDenied();
-      const item = createPackingItem(tripId, { name, category: category || 'General' });
+      const item = createPackingItem(tripId, { name, category: category || 'General' }, userId);
       safeBroadcast(tripId, 'packing:created', { item });
       return ok({ item });
     }
@@ -386,7 +386,7 @@ export function registerPackingTools(server: McpServer, userId: number, scopes: 
       if (isDemoUser(userId)) return demoDenied();
       if (!canAccessTrip(tripId, userId)) return noAccess();
       if (!hasTripPermission('packing_edit', tripId, userId)) return permissionDenied();
-      const created = bulkImport(tripId, items);
+      const created = bulkImport(tripId, items, userId);
       for (const item of created) safeBroadcast(tripId, 'packing:created', { item });
       return ok({ items: created, count: created.length });
     }

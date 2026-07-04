@@ -20,5 +20,18 @@ const members: TranslationStrings = {
   'members.addError': '追加に失敗しました',
   'members.removed': 'メンバーを削除しました',
   'members.removeError': '削除に失敗しました',
+  'members.makeOwner': 'オーナーにする',
+  'members.confirmTransfer': '所有権を {name} に移譲しますか？あなたは通常のメンバーになります。',
+  'members.transferError': '所有権の移譲に失敗しました',
+  'members.guests': 'ゲスト',
+  'members.guest': 'ゲスト',
+  'members.guestsHint': 'アカウントを持たない人。費用・持ち物・タスクに割り当てできますが、ログインはできません。',
+  'members.addGuest': 'ゲストを追加',
+  'members.guestNamePlaceholder': 'ゲスト名',
+  'members.guestAdded': 'ゲストを追加しました',
+  'members.guestAddError': 'ゲストの追加に失敗しました',
+  'members.guestRenameError': 'ゲストの名前変更に失敗しました',
+  'members.guestRemoved': 'ゲストを削除しました',
+  'members.confirmRemoveGuest': 'このゲストを削除しますか？割り当てと費用の負担分も削除されます。',
 };
 export default members;

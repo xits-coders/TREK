@@ -112,6 +112,8 @@ export interface KiEventVenue {
   name?: string;
   address?: string | KiAddress;
   geo?: KiGeo;
+  telephone?: string;
+  url?: string;
 }
 
 export interface KiEvent {
@@ -134,6 +136,12 @@ export interface KiReservation {
   endTime?: KiDateTimeish;
   reservationFor?: Record<string, unknown>;
   pickupLocation?: KiEventVenue;
+  dropoffLocation?: KiEventVenue;
+  seat?: string;
+  class?: string;
+  platform?: string;
+  price?: number | string;
+  priceCurrency?: string;
   [key: string]: unknown;
 }
 
@@ -143,8 +151,8 @@ export interface ParsedEndpoint {
   sequence: number;
   name: string;
   code: string | null;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   timezone: string | null;
   local_time: string | null;
   local_date: string | null;
