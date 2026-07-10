@@ -90,5 +90,7 @@ const login: TranslationStrings = {
   'login.insecureCookie.body':
     'Du verbindest dich über reines HTTP, daher verwirft dein Browser TREKs sicheren Session-Cookie — die nächste Anfrage scheitert mit „Access token required". Lösung: HTTPS nutzen, oder für ein Heim-Setup COOKIE_SECURE=false setzen.',
   'login.insecureCookie.link': 'Zur Troubleshooting-Anleitung',
+  'login.ldap.failed': 'LDAP-Authentifizierung fehlgeschlagen. Bitte versuche es später erneut.',
+  'login.ldap.accessDenied': 'Zugriff verweigert. Du bist kein Mitglied einer autorisierten Gruppe.',
 };
 export default login;
