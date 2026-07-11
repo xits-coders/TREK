@@ -21,7 +21,7 @@ import { discoverPlugins } from './install/discovery';
 import { parseJsonText, parseManifest } from './install/manifest';
 import { scanForNativeBinaries } from './install/native-scan';
 import { devLinkEnabled, DEV_LINK_SOURCE } from './dev-link';
-import { pluginCodeDir } from './paths';
+import { pluginCodeDir, pluginDataDir } from './paths';
 import { PluginRegistryService } from './registry/registry.service';
 import { isAddonEnabled } from '../../services/adminService';
 import type { PluginDependency } from './install/manifest';
@@ -281,10 +281,21 @@ export class PluginRuntimeService implements OnModuleInit, OnModuleDestroy {
   private async runDrainOnce(): Promise<void> {
     if (!pluginsEnabled()) return;
     try {
-      // Reap rows whose plugin no longer exists (uninstalled): its data dir was removed
-      // with it, so the erasure is already satisfied, and the plugin will never reactivate
-      // to ACK the row — left alone it would linger in the queue forever.
-      db.prepare('DELETE FROM plugin_user_erasure_queue WHERE plugin_id NOT IN (SELECT id FROM plugins)').run();
+      // Reap a queued erasure only when its plugin is gone from the registry AND its data
+      // dir is actually deleted — then the data (and the obligation) is truly gone. A plugin
+      // uninstalled with "keep data" (deleteData=false) removes the plugins row but
+      // DELIBERATELY keeps the data dir and the queue row so a same-id reinstall can still
+      // honour the erasure (see uninstall()); reaping on registry-absence alone would wipe
+      // exactly those preserved obligations. A deleteData=true uninstall already clears the
+      // rows itself, so this only ever needs to catch a truly orphaned data dir.
+      const orphans = db
+        .prepare('SELECT DISTINCT plugin_id FROM plugin_user_erasure_queue WHERE plugin_id NOT IN (SELECT id FROM plugins)')
+        .all() as Array<{ plugin_id: string }>;
+      for (const { plugin_id } of orphans) {
+        if (!fs.existsSync(pluginDataDir(plugin_id))) {
+          db.prepare('DELETE FROM plugin_user_erasure_queue WHERE plugin_id = ?').run(plugin_id);
+        }
+      }
       // Only ACTIVE plugins can be delivered to; scope the window to them so a backlog
       // of erasures for permanently-inactive plugins can't starve deliverable ones.
       const active = this.supervisor.activeIds();

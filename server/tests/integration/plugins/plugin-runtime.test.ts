@@ -194,6 +194,29 @@ describe('PluginRuntimeService (M2 end-to-end)', () => {
     await runtime.deactivate('gdpr');
   });
 
+  it('the drain reap keeps a queued erasure while the plugin data dir survives (uninstall keep-data), reaping only once the data is gone', async () => {
+    // uninstall(deleteData=false) removes the plugins row but DELIBERATELY keeps the data
+    // dir and the queued erasure so a same-id reinstall can still honour it. The orphan
+    // reap must not delete that row while the data dir is still present.
+    const id = 'reaptest';
+    const dir = path.join(dataRoot, id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'plugin.db'), 'x');
+    testDb.prepare('INSERT INTO plugin_user_erasure_queue (plugin_id, user_id) VALUES (?, ?)').run(id, 9);
+    // the plugin is gone from the registry (uninstalled) but its data dir remains
+    expect(testDb.prepare('SELECT id FROM plugins WHERE id = ?').get(id)).toBeUndefined();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (runtime as any).drainUserErasures();
+    expect((testDb.prepare("SELECT COUNT(*) c FROM plugin_user_erasure_queue WHERE plugin_id='reaptest'").get() as { c: number }).c).toBe(1);
+
+    // now the data is truly gone (deleteData=true / manual removal) → the row is reaped
+    fs.rmSync(dir, { recursive: true, force: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (runtime as any).drainUserErasures();
+    expect((testDb.prepare("SELECT COUNT(*) c FROM plugin_user_erasure_queue WHERE plugin_id='reaptest'").get() as { c: number }).c).toBe(0);
+  });
+
   it('leaves an erasure queued for a plugin that is offline, to run when it is back', async () => {
     // granted the hook but NOT active → enqueue keeps the row, drain leaves it
     testDb.prepare("INSERT INTO plugins (id, status, permissions, config) VALUES ('offliner','inactive','[\"db:own\",\"hook:user-data\"]','{}')").run();
