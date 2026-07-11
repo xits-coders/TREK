@@ -550,5 +550,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     "Le nouvel utilisateur est automatiquement ajouté à ce voyage lorsqu'il s'inscrit via le lien.",
   'admin.invite.boundTo': 'ajoute à {trip}',
+  'admin.ldap.defaultMethod': 'Méthode de connexion LDAP par défaut',
+  'admin.ldap.defaultMethodHint': 'Définit la méthode de connexion présélectionnée sur la page de connexion.',
+  'admin.ldap.method.ldap': 'LDAP uniquement — les utilisateurs se connectent avec leurs identifiants LDAP',
+  'admin.ldap.method.local': 'Local uniquement — les utilisateurs se connectent avec leur mot de passe local',
+  'admin.ldap.method.both': 'Les deux — les utilisateurs peuvent choisir entre LDAP et connexion locale',
 };
 export default admin;

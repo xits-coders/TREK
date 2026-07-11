@@ -68,3 +68,6 @@ test-data
 .full-review
 # Wiki offline snapshot is baked in at build, not committed (duplicates wiki/)
 server/assets/wiki/
+
+*.orig
+*.rej
