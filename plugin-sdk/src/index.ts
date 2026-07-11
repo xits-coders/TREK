@@ -614,7 +614,7 @@ export function definePlugin(def: PluginDefinition): PluginDefinition {
   return def;
 }
 
-export { validateManifest, type PluginManifest, type ValidationResult } from './manifest.js';
+export { validateManifest, CHANNEL_EVENTS, type PluginManifest, type ValidationResult } from './manifest.js';
 export { createMockHost, type MockHostOptions } from './mock-host.js';
 // The design kit for page/widget UIs: inline these into your client/index.html
 // (or drop a `<!-- trek:ui -->` marker and let `dev`/`pack` expand it) to get the

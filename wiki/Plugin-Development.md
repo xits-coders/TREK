@@ -989,6 +989,36 @@ host.scheduled.get('daily')                                 // timers the plugin
 A handler your plugin didn't declare throws a clear error (not a silent no-op),
 so a test catches a missing `scheduled`/`deleteUserData`/job before release.
 
+#### Settings actions and notification channels
+
+These two have their own driver methods, because the host invokes them in ways a
+plain `hook()` call can't express:
+
+```js
+const host = createMockHost({ actingUserId: 7, userSettings: { token: 'abc' } })
+const app  = host.run(myPlugin)
+
+// A settings-page button. USER-INITIATED, so ctx.settings.get() returns the clicker's
+// own value. You get back the result the user would actually see: a handler that
+// returns nothing is { ok: true }, and one that THROWS is { ok: false, message } —
+// the documented contract, so this never rejects.
+await app.action('test')            // → { ok: true, message: 'Connected' }
+
+// A notification channel. USERLESS — the host fires it for an arbitrary recipient, so
+// ctx.settings.get() returns undefined and trip reads are refused; the recipient's
+// decrypted settings arrive as the `config` ARGUMENT instead (defaulting to the
+// `userSettings` fixture). That asymmetry is the security property of a channel
+// plugin — it is handed someone's push token without the right to read their trips.
+await app.channel.send({ event: 'trip_invite', title: 'Hi', body: 'Japan' })
+await app.channel.test({ token: 'abc' })
+```
+
+An event outside [`CHANNEL_EVENTS`](#notification-channels) — or outside your
+manifest's `capabilities.notificationChannel.events`, which may only *narrow* that
+set — is refused rather than delivered, so a test can't pass on a notification the
+host would never route to you. Pass `declaredActions` / `channelEvents` to model
+what your manifest declares.
+
 ## Rules
 
 - **No native modules** (`.node`, `binding.gyp`, `prebuilds/`) — rejected at pack

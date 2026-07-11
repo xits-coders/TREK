@@ -1,4 +1,5 @@
-import type { PluginContext, PluginDefinition, PluginRequest, PluginResponse, Trip, Place, Day, Reservation, PackingItem, TripFile, BudgetItem, User } from './index.js';
+import type { PluginContext, PluginDefinition, PluginRequest, PluginResponse, Trip, Place, Day, Reservation, PackingItem, TripFile, BudgetItem, User, NotificationMessage, PluginActionResult } from './index.js';
+import { CHANNEL_EVENTS } from './manifest.js';
 
 /**
  * A mock PluginContext for unit-testing a plugin without a running TREK
@@ -61,7 +62,17 @@ export interface MockHostOptions {
    * refuses it (and the SDK client swallows the rejection, so subscribers silently
    * never see it). Unset = record every emit, as before. */
   declaredEmits?: string[];
-  /** The acting user's per-user settings values for ctx.settings.get (unset key → undefined). */
+  /** Action keys this plugin declares in its manifest `actions`. When set, driving an
+   * undeclared key throws — production refuses it before the child is ever woken.
+   * Unset = any key the plugin implements can be driven. */
+  declaredActions?: string[];
+  /** The events this plugin's notification channel accepts, i.e. the manifest's
+   * `capabilities.notificationChannel.events`. Defaults to the full CHANNEL_EVENTS set.
+   * A manifest can only NARROW that set, never widen it — so can this. */
+  channelEvents?: string[];
+  /** The acting user's per-user settings values for ctx.settings.get (unset key → undefined).
+   * Doubles as the default `config` handed to the notificationChannel hook. Keys must be
+   * ones the host would accept at install — `__proto__` & co are rejected here too. */
   userSettings?: Record<string, unknown>;
   /** The acting user's own (non-trip) data: tags, journals, collections, atlas, vacay.
    * `journals` also gates journal entry access — an unknown journey id is refused. */
@@ -107,6 +118,24 @@ export interface PluginDriver {
   exportUserData(userId: number): Promise<unknown>;
   /** Invoke a provider hook, e.g. hook('tripCardProvider', 'getCards', [1, 2]). */
   hook<T = unknown>(name: string, fn: string, ...args: unknown[]): Promise<T>;
+  /** Click one of the plugin's settings-page buttons ("Test connection"). USER-INITIATED,
+   * so the handler gets the acting-user ctx — ctx.settings.get() returns the host's
+   * `userSettings`. Returns the normalized result the user would actually see: a handler
+   * that returns nothing is `{ ok: true }`, and one that THROWS is `{ ok: false, message }`
+   * (the documented contract), never a rejected promise. */
+  action(key: string): Promise<{ ok: boolean; message?: string }>;
+  /** Drive the `notificationChannel` hook the way the HOST does, which is the one thing a
+   * plain `hook()` call cannot express: USERLESS (a notification is host-initiated for an
+   * arbitrary recipient, so ctx.settings.get() returns undefined and trip reads are
+   * refused) with the recipient's decrypted settings handed in as `config` instead. That
+   * asymmetry is the whole security property of a channel plugin — test against it. */
+  channel: {
+    /** `config` defaults to the host's `userSettings` fixture. An event the host would
+     * never dispatch to a plugin channel (an admin-scoped one, or one your manifest's
+     * `capabilities.notificationChannel.events` excludes) is refused rather than delivered. */
+    send(msg: NotificationMessage, config?: Record<string, unknown>): Promise<void>;
+    test(config?: Record<string, unknown>): Promise<void>;
+  };
 }
 
 export interface MockHost {
@@ -164,6 +193,27 @@ function stripEmoji(s: string): string {
   return stripped.replace(/[^\S\r\n]{2,}/g, ' ').replace(/ +$/gm, '').trim();
 }
 
+// The host's settings-key rules (install/manifest.ts). A field the host would refuse to
+// install must not be reachable in a test either: a key like `__proto__` or `constructor`
+// used to resolve off Object.prototype and report as CONFIGURED for every user who had
+// configured nothing — for a channel, enough to be dispatched to everyone with no
+// credentials. Fixtures are key-checked and every config blob handed to a plugin is
+// null-prototype, so the mock cannot reproduce the shape of that bug.
+const SETTING_KEY_RE = /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/;
+const RESERVED_SETTING_KEYS = new Set(['constructor', 'prototype', '__proto__']);
+
+/** Copy onto a null-prototype object, refusing any key the host would not have installed. */
+function settingsBlob(src: Record<string, unknown> | undefined, what: string): Record<string, unknown> {
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [k, v] of Object.entries(src ?? {})) {
+    if (!SETTING_KEY_RE.test(k) || RESERVED_SETTING_KEYS.has(k)) {
+      throw new Error(`${what}: the host would reject the settings key "${k}"`);
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
 // The REST string caps the host mirrors on the plugin write path (rpc-host.ts).
 const PLACE_STR_LIMITS: Record<string, number> = { name: 200, description: 2000, address: 500, notes: 2000 };
 const TRIP_STR_LIMITS: Record<string, number> = { title: 200, description: 2000 };
@@ -175,6 +225,9 @@ export function createMockHost(opts: MockHostOptions = {}): MockHost {
   const broadcasts: MockHost['broadcasts'] = [];
   const emitted: MockHost['emitted'] = [];
   const notifications: MockHost['notifications'] = [];
+  // Validated once, up front: a fixture the host could never have installed should fail
+  // the test at construction, not silently at the first get().
+  const userSettings = settingsBlob(opts.userSettings, 'userSettings');
 
   const need = (perm: string, method: string) => {
     calls.push({ method, args: [] });
@@ -270,7 +323,10 @@ export function createMockHost(opts: MockHostOptions = {}): MockHost {
         async get(key) {
           calls.push({ method: 'settings.get', args: [key] });
           if (actingUserId === undefined) return undefined;
-          return opts.userSettings?.[key];
+          // A key the host would never have installed can hold no value — and, crucially,
+          // resolves to nothing rather than to something off Object.prototype.
+          if (!SETTING_KEY_RE.test(key) || RESERVED_SETTING_KEYS.has(key)) return undefined;
+          return userSettings[key];
         },
       },
       db: {
@@ -1356,7 +1412,45 @@ export function createMockHost(opts: MockHostOptions = {}): MockHost {
       const hooks = def.hooks as Record<string, Record<string, (...a: unknown[]) => unknown> | undefined> | undefined;
       const impl = hooks?.[name];
       if (!impl || typeof impl[fn] !== 'function') throw new Error(`no hook ${name}.${fn}`);
-      return impl[fn](...args, ctx) as never;
+      // Every provider hook is user-initiated and gets the acting-user ctx — except
+      // notificationChannel, which the host fires for an arbitrary recipient with no
+      // acting user at all. Handing it `ctx` here would let a channel plugin pass a test
+      // that reads ctx.settings.get() and then deliver to nobody in production.
+      return impl[fn](...args, name === 'notificationChannel' ? userlessCtx : ctx) as never;
+    },
+    action: async (key) => {
+      if (opts.declaredActions && !opts.declaredActions.includes(key)) {
+        throw new Error(`RESOURCE_FORBIDDEN: plugin did not declare action "${key}"`);
+      }
+      const fn = def.actions?.[key];
+      if (typeof fn !== 'function') throw new Error(`no action "${key}"`);
+      // Same shaping as the host: a plugin-supplied message is emoji-stripped and bounded
+      // before a user ever sees it, void means success, and a throw is a FAILED action
+      // ("your credentials don't work") rather than a fault to propagate.
+      const cap = (v: unknown) => stripEmoji(String(v)).slice(0, 200);
+      let raw: PluginActionResult | void;
+      try {
+        raw = await fn(ctx);
+      } catch (e) {
+        return { ok: false, message: cap(e instanceof Error ? e.message : 'Action failed') };
+      }
+      return { ok: raw?.ok !== false, message: raw?.message === undefined ? undefined : cap(raw.message) };
+    },
+    channel: {
+      send: async (msg, config) => {
+        const impl = def.hooks?.notificationChannel;
+        if (!impl) throw new Error('plugin has no notificationChannel hook');
+        const allowed = opts.channelEvents ?? CHANNEL_EVENTS;
+        if (!allowed.includes(msg.event)) {
+          throw new Error(`the host never dispatches "${msg.event}" to a plugin channel`);
+        }
+        await impl.send(msg, settingsBlob(config ?? opts.userSettings, 'channel config'), userlessCtx);
+      },
+      test: async (config) => {
+        const impl = def.hooks?.notificationChannel;
+        if (typeof impl?.test !== 'function') throw new Error('plugin has no notificationChannel.test hook');
+        await impl.test(settingsBlob(config ?? opts.userSettings, 'channel config'), userlessCtx);
+      },
     },
   });
 

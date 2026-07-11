@@ -707,6 +707,104 @@ describe('mock-host inter-plugin (plugins.call + events.emit)', () => {
     ctx.events.emit('rate.updated', { pair: 'USD/EUR' });
     expect(emitted).toEqual([{ name: 'rate.updated', payload: { pair: 'USD/EUR' } }]);
   });
+
+  it('drives a notificationChannel USERLESS, with the recipient config passed in', async () => {
+    const sent: unknown[] = [];
+    const def = definePlugin({
+      hooks: {
+        notificationChannel: {
+          async send(msg, config, ctx) {
+            // The whole point of the userless dispatch: the credentials arrive as `config`,
+            // and the channel canNOT read anything as the recipient.
+            sent.push({ msg, token: config.token, settings: await ctx.settings.get('token') });
+          },
+          async test(config) { if (!config.token) throw new Error('no token'); },
+        },
+      },
+    });
+    const host = createMockHost({
+      grants: ['hook:notification-channel', 'db:read:trips'],
+      actingUserId: 7,
+      userSettings: { token: 'abc' },
+      trips: { 1: { members: [7] } },
+    });
+    const d = host.run(def);
+
+    await d.channel.send({ event: 'trip_invite', title: 'Hi', body: 'Japan' });
+    expect(sent).toEqual([{
+      msg: { event: 'trip_invite', title: 'Hi', body: 'Japan' },
+      token: 'abc',
+      // Userless: ctx.settings.get() resolves against the ACTING user, and there is none.
+      settings: undefined,
+    }]);
+
+    await expect(d.channel.test({ token: 'x' })).resolves.toBeUndefined();
+    await expect(d.channel.test({})).rejects.toThrow(/no token/);
+  });
+
+  it('refuses a channel event the host would never dispatch, and a manifest may narrow the set', async () => {
+    const def = definePlugin({ hooks: { notificationChannel: { async send() { /* delivered */ } } } });
+    const d = createMockHost({ grants: ['hook:notification-channel'] }).run(def);
+    // Admin-scoped / in-app-only events are not in CHANNEL_EVENTS.
+    await expect(d.channel.send({ event: 'admin_alert', title: 'T', body: 'B' })).rejects.toThrow(/never dispatches/);
+    await expect(d.channel.send({ event: 'trip_invite', title: 'T', body: 'B' })).resolves.toBeUndefined();
+
+    const narrowed = createMockHost({ grants: ['hook:notification-channel'], channelEvents: ['todo_due'] }).run(def);
+    await expect(narrowed.channel.send({ event: 'trip_invite', title: 'T', body: 'B' })).rejects.toThrow(/never dispatches/);
+    await expect(narrowed.channel.send({ event: 'todo_due', title: 'T', body: 'B' })).resolves.toBeUndefined();
+
+    await expect(createMockHost({}).run(definePlugin({})).channel.send({ event: 'todo_due', title: 'T', body: 'B' }))
+      .rejects.toThrow(/no notificationChannel hook/);
+  });
+
+  it('a plugin with no notificationChannel.test is a clear error, not a silent pass', async () => {
+    const def = definePlugin({ hooks: { notificationChannel: { async send() {} } } });
+    await expect(createMockHost({}).run(def).channel.test()).rejects.toThrow(/no notificationChannel\.test/);
+  });
+
+  it('runs a settings action as the CLICKING user and shapes the result like the host', async () => {
+    const def = definePlugin({
+      actions: {
+        test: async (ctx) => ({ ok: true, message: `token=${await ctx.settings.get('token')} ✅` }),
+        quiet: () => {},
+        boom: () => { throw new Error('credentials rejected'); },
+        loud: () => ({ ok: false, message: 'x'.repeat(500) }),
+      },
+    });
+    const host = createMockHost({ actingUserId: 7, userSettings: { token: 'abc' } });
+    const d = host.run(def);
+
+    // User-initiated: ctx.settings.get() returns the clicker's own value. The message is
+    // emoji-stripped and bounded, exactly as the host does before showing it.
+    expect(await d.action('test')).toEqual({ ok: true, message: 'token=abc' });
+    // A handler that returns nothing succeeded.
+    expect(await d.action('quiet')).toEqual({ ok: true, message: undefined });
+    // Throwing is the documented "action failed" path, not a rejected promise.
+    expect(await d.action('boom')).toEqual({ ok: false, message: 'credentials rejected' });
+    expect((await d.action('loud')).message).toHaveLength(200);
+
+    await expect(d.action('nope')).rejects.toThrow(/no action/);
+  });
+
+  it('refuses an action key the manifest does not declare', async () => {
+    const def = definePlugin({ actions: { sync: () => ({ ok: true }) } });
+    const d = createMockHost({ actingUserId: 7, declaredActions: ['test'] }).run(def);
+    await expect(d.action('sync')).rejects.toThrow(/RESOURCE_FORBIDDEN/);
+  });
+
+  it('never resolves a settings key off Object.prototype', async () => {
+    // The bug this models: `__proto__`/`constructor` used to resolve to a truthy object,
+    // reporting a REQUIRED field as configured for a user who had configured nothing.
+    const { ctx } = createMockHost({ actingUserId: 7, userSettings: { token: 'abc' } });
+    expect(await ctx.settings.get('__proto__')).toBeUndefined();
+    expect(await ctx.settings.get('constructor')).toBeUndefined();
+    expect(await ctx.settings.get('token')).toBe('abc');
+    // And a fixture the host would have refused at install fails the test up front. Note a
+    // `__proto__` OWN key only exists via JSON.parse (in a literal it sets the prototype) —
+    // which is exactly the shape a stored config blob arrives in.
+    expect(() => createMockHost({ userSettings: JSON.parse('{"__proto__":{"evil":1}}') })).toThrow(/settings key/);
+    expect(() => createMockHost({ userSettings: { '9lives': 1 } })).toThrow(/settings key/);
+  });
 });
 
 describe('validateManifest capabilities.provides/emits', () => {
