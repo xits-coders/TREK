@@ -16,6 +16,7 @@ export default function LoginPage(): React.ReactElement {
     showTakeoff, mfaStep, setMfaStep, mfaToken, setMfaToken, mfaCode, setMfaCode,
     passwordChangeStep, newPassword, setNewPassword, confirmPassword, setConfirmPassword,
     noRedirect, showRegisterOption, oidcOnly,
+    authMethod, setAuthMethod,
     handleDemoLogin, handleSubmit, handlePasskeyLogin,
   } = useLogin()
 
@@ -440,6 +441,28 @@ export default function LoginPage(): React.ReactElement {
                     : t('login.subtitle')}
             </p>
 
+            {/* LDAP / Local toggle — only when both methods available */}
+            {appConfig?.ldap_configured && appConfig?.ldap_default_method === 'both' && mode === 'login' && !mfaStep && !passwordChangeStep && (
+              <div style={{ display: 'flex', borderRadius: 10, border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: 4 }}>
+                {(['ldap', 'local'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAuthMethod(m)}
+                    style={{
+                      flex: 1, padding: '8px 0', border: 'none', cursor: 'pointer',
+                      fontFamily: 'inherit', fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 600,
+                      background: authMethod === m ? '#111827' : 'white',
+                      color: authMethod === m ? 'white' : '#6b7280',
+                      transition: 'background 0.15s, color 0.15s',
+                    }}
+                  >
+                    {m === 'ldap' ? t('login.ldap.method') : t('login.local.method')}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {error && (
                 <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, fontSize: 'calc(13px * var(--fs-scale-body, 1))', color: '#dc2626' }}>
@@ -539,12 +562,15 @@ export default function LoginPage(): React.ReactElement {
               {/* Email */}
               {!(mode === 'login' && mfaStep) && !passwordChangeStep && (
               <div>
-                <label style={{ display: 'block', fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 600, color: '#374151', marginBottom: 6 }}>{t('common.email')}</label>
+                <label style={{ display: 'block', fontSize: 'calc(12.5px * var(--fs-scale-body, 1))', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  {appConfig?.ldap_configured && authMethod === 'ldap' && mode === 'login' ? t('login.username') : t('common.email')}
+                </label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={15} className="text-[#9ca3af]" style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                   <input
-                    type="email" value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} required
-                    placeholder={t('login.emailPlaceholder')} style={inputBase}
+                    type={appConfig?.ldap_configured && authMethod === 'ldap' && mode === 'login' ? 'text' : 'email'}
+                    value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} required
+                    placeholder={appConfig?.ldap_configured && authMethod === 'ldap' && mode === 'login' ? t('login.ldap.usernamePlaceholder') : t('login.emailPlaceholder')} style={inputBase}
                     onFocus={(e: React.FocusEvent<HTMLInputElement>) => e.target.style.borderColor = '#111827'}
                     onBlur={(e: React.FocusEvent<HTMLInputElement>) => e.target.style.borderColor = '#e5e7eb'}
                   />

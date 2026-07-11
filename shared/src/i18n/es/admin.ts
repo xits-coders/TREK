@@ -554,5 +554,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     'El nuevo usuario se añade automáticamente a este viaje cuando se registra mediante el enlace.',
   'admin.invite.boundTo': 'se añade a {trip}',
+  'admin.ldap.defaultMethod': 'Método de inicio de sesión LDAP predeterminado',
+  'admin.ldap.defaultMethodHint': 'Controla qué método de inicio de sesión está preseleccionado en la página de inicio de sesión.',
+  'admin.ldap.method.ldap': 'Solo LDAP — los usuarios inician sesión con sus credenciales LDAP',
+  'admin.ldap.method.local': 'Solo local — los usuarios inician sesión con su contraseña local',
+  'admin.ldap.method.both': 'Ambos — los usuarios pueden elegir entre LDAP e inicio de sesión local',
 };
 export default admin;
