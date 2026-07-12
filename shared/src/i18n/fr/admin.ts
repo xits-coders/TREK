@@ -189,14 +189,18 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': "Voir le journal d'erreurs",
   'admin.plugins.errorLog': "Journal d'erreurs",
   'admin.plugins.allowedHosts': 'Hôtes autorisés',
-  'admin.plugins.allowedHosts.hint': 'Ce plugin communique avec un service que vous seul pouvez nommer (un serveur auto-hébergé). Ajoutez les hôtes qu’il peut joindre — il ne joindra aucun autre.',
+  'admin.plugins.allowedHosts.hint':
+    'Ce plugin communique avec un service que vous seul pouvez nommer (un serveur auto-hébergé). Ajoutez les hôtes qu’il peut joindre — il ne joindra aucun autre.',
   'admin.plugins.allowedHosts.none': 'Aucun hôte ajouté pour l’instant.',
-  'admin.plugins.allowedHosts.unsupported': 'Ce plugin n’utilise pas d’hôtes fournis par l’opérateur. Ses hôtes autorisés sont fixés dans son manifeste.',
-  'admin.plugins.allowedHosts.restartNote': 'L’enregistrement redémarre le plugin pour qu’il prenne en compte la nouvelle liste.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Ce plugin n’utilise pas d’hôtes fournis par l’opérateur. Ses hôtes autorisés sont fixés dans son manifeste.',
+  'admin.plugins.allowedHosts.restartNote':
+    'L’enregistrement redémarre le plugin pour qu’il prenne en compte la nouvelle liste.',
   'admin.plugins.allowedHosts.add': 'Ajouter un hôte autorisé',
   'admin.plugins.allowedHosts.count': '{n} hôte(s) autorisé(s)',
   'admin.plugins.operatorEgressPill': '+ hôtes que vous ajoutez',
-  'admin.plugins.operatorEgressHint': 'Ce plugin communique avec un service que vous seul pouvez nommer (un serveur auto-hébergé). Après installation, ajoutez les hôtes qu’il peut joindre via ⋯ → Hôtes autorisés. Il ne joindra aucun autre.',
+  'admin.plugins.operatorEgressHint':
+    'Ce plugin communique avec un service que vous seul pouvez nommer (un serveur auto-hébergé). Après installation, ajoutez les hôtes qu’il peut joindre via ⋯ → Hôtes autorisés. Il ne joindra aucun autre.',
   'admin.plugins.noErrors': 'Aucune erreur enregistrée.',
   'admin.plugins.uninstalled': 'Plugin désinstallé',
   'admin.plugins.uninstallTitle': 'Désinstaller le plugin ?',
@@ -638,5 +642,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     "Le nouvel utilisateur est automatiquement ajouté à ce voyage lorsqu'il s'inscrit via le lien.",
   'admin.invite.boundTo': 'ajoute à {trip}',
+  'admin.ldap.defaultMethod': 'Méthode de connexion LDAP par défaut',
+  'admin.ldap.defaultMethodHint': 'Définit la méthode de connexion présélectionnée sur la page de connexion.',
+  'admin.ldap.method.ldap': 'LDAP uniquement',
+  'admin.ldap.method.local': 'Local uniquement',
+  'admin.ldap.method.both': 'Les deux',
 };
 export default admin;

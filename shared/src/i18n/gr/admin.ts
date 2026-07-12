@@ -234,14 +234,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Προβολή αρχείου σφαλμάτων',
   'admin.plugins.errorLog': 'Αρχείο σφαλμάτων',
   'admin.plugins.allowedHosts': 'Επιτρεπόμενοι κόμβοι',
-  'admin.plugins.allowedHosts.hint': 'Αυτό το πρόσθετο επικοινωνεί με μια υπηρεσία που μόνο εσείς μπορείτε να ονομάσετε (αυτο-φιλοξενούμενος διακομιστής). Προσθέστε τους κόμβους που μπορεί να προσεγγίσει — κανέναν άλλον.',
+  'admin.plugins.allowedHosts.hint':
+    'Αυτό το πρόσθετο επικοινωνεί με μια υπηρεσία που μόνο εσείς μπορείτε να ονομάσετε (αυτο-φιλοξενούμενος διακομιστής). Προσθέστε τους κόμβους που μπορεί να προσεγγίσει — κανέναν άλλον.',
   'admin.plugins.allowedHosts.none': 'Δεν έχουν προστεθεί κόμβοι ακόμη.',
-  'admin.plugins.allowedHosts.unsupported': 'Αυτό το πρόσθετο δεν χρησιμοποιεί κόμβους που ορίζει ο διαχειριστής. Οι επιτρεπόμενοι κόμβοι του είναι σταθεροί στο manifest.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Αυτό το πρόσθετο δεν χρησιμοποιεί κόμβους που ορίζει ο διαχειριστής. Οι επιτρεπόμενοι κόμβοι του είναι σταθεροί στο manifest.',
   'admin.plugins.allowedHosts.restartNote': 'Η αποθήκευση επανεκκινεί το πρόσθετο ώστε να λάβει τη νέα λίστα.',
   'admin.plugins.allowedHosts.add': 'Προσθήκη επιτρεπόμενου κόμβου',
   'admin.plugins.allowedHosts.count': '{n} επιτρεπόμενοι κόμβοι',
   'admin.plugins.operatorEgressPill': '+ κόμβοι που προσθέτετε',
-  'admin.plugins.operatorEgressHint': 'Αυτό το πρόσθετο επικοινωνεί με μια υπηρεσία που μόνο εσείς μπορείτε να ονομάσετε (αυτο-φιλοξενούμενος διακομιστής). Μετά την εγκατάσταση προσθέστε τους κόμβους στο ⋯ → Επιτρεπόμενοι κόμβοι. Κανέναν άλλον.',
+  'admin.plugins.operatorEgressHint':
+    'Αυτό το πρόσθετο επικοινωνεί με μια υπηρεσία που μόνο εσείς μπορείτε να ονομάσετε (αυτο-φιλοξενούμενος διακομιστής). Μετά την εγκατάσταση προσθέστε τους κόμβους στο ⋯ → Επιτρεπόμενοι κόμβοι. Κανέναν άλλον.',
   'admin.plugins.noErrors': 'Δεν έχουν καταγραφεί σφάλματα.',
   'admin.plugins.uninstalled': 'Το plugin απεγκαταστάθηκε',
   'admin.plugins.uninstallTitle': 'Απεγκατάσταση plugin;',
@@ -649,5 +652,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Χωρίς ταξίδι',
   'admin.invite.tripHint': 'Ο νέος χρήστης προστίθεται αυτόματα σε αυτό το ταξίδι όταν εγγραφεί μέσω του συνδέσμου.',
   'admin.invite.boundTo': 'προσθήκη στο {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;
