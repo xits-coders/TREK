@@ -43,5 +43,8 @@
     "@img/sharp-linuxmusl-x64": "0.35.1",
     "@rollup/rollup-linux-arm64-musl": "4.62.0",
     "@rollup/rollup-linux-x64-musl": "4.62.0"
+  },
+  "dependencies": {
+    "ldapts": "^9.0.0"
   }
 }
