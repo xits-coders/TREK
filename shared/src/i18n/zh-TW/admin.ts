@@ -221,14 +221,16 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': '檢視錯誤日誌',
   'admin.plugins.errorLog': '錯誤日誌',
   'admin.plugins.allowedHosts': '允許的主機',
-  'admin.plugins.allowedHosts.hint': '此外掛會連線到只有你才知道位址的服務（自架伺服器）。請新增它可以存取的主機 —— 其他主機一律無法存取。',
+  'admin.plugins.allowedHosts.hint':
+    '此外掛會連線到只有你才知道位址的服務（自架伺服器）。請新增它可以存取的主機 —— 其他主機一律無法存取。',
   'admin.plugins.allowedHosts.none': '尚未新增主機。',
   'admin.plugins.allowedHosts.unsupported': '此外掛不使用營運者提供的主機。其允許的主機已在資訊清單中固定。',
   'admin.plugins.allowedHosts.restartNote': '儲存會重新啟動外掛，以便套用新的清單。',
   'admin.plugins.allowedHosts.add': '新增允許的主機',
   'admin.plugins.allowedHosts.count': '{n} 個允許的主機',
   'admin.plugins.operatorEgressPill': '+ 你新增的主機',
-  'admin.plugins.operatorEgressHint': '此外掛會連線到只有你才知道位址的服務（自架伺服器）。安裝後請在 ⋯ → 允許的主機 中新增。其他主機一律無法存取。',
+  'admin.plugins.operatorEgressHint':
+    '此外掛會連線到只有你才知道位址的服務（自架伺服器）。安裝後請在 ⋯ → 允許的主機 中新增。其他主機一律無法存取。',
   'admin.plugins.noErrors': '沒有錯誤記錄。',
   'admin.plugins.uninstalled': '外掛已解除安裝',
   'admin.plugins.uninstallTitle': '解除安裝外掛？',
@@ -579,5 +581,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': '不指定行程',
   'admin.invite.tripHint': '新使用者透過連結註冊時，會自動加入此行程。',
   'admin.invite.boundTo': '加入 {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

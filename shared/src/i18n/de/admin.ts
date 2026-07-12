@@ -188,14 +188,18 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Fehlerprotokoll ansehen',
   'admin.plugins.errorLog': 'Fehlerprotokoll',
   'admin.plugins.allowedHosts': 'Erlaubte Hosts',
-  'admin.plugins.allowedHosts.hint': 'Dieses Plugin spricht mit einem Dienst, den nur du benennen kannst (ein selbst gehosteter Server). Füge die Hosts hinzu, die es erreichen darf — andere erreicht es nicht.',
+  'admin.plugins.allowedHosts.hint':
+    'Dieses Plugin spricht mit einem Dienst, den nur du benennen kannst (ein selbst gehosteter Server). Füge die Hosts hinzu, die es erreichen darf — andere erreicht es nicht.',
   'admin.plugins.allowedHosts.none': 'Noch keine Hosts hinzugefügt.',
-  'admin.plugins.allowedHosts.unsupported': 'Dieses Plugin nutzt keine vom Betreiber angegebenen Hosts. Seine erlaubten Hosts stehen fest im Manifest.',
-  'admin.plugins.allowedHosts.restartNote': 'Beim Speichern wird das Plugin neu gestartet, damit es die neue Liste übernimmt.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Dieses Plugin nutzt keine vom Betreiber angegebenen Hosts. Seine erlaubten Hosts stehen fest im Manifest.',
+  'admin.plugins.allowedHosts.restartNote':
+    'Beim Speichern wird das Plugin neu gestartet, damit es die neue Liste übernimmt.',
   'admin.plugins.allowedHosts.add': 'Erlaubten Host hinzufügen',
   'admin.plugins.allowedHosts.count': '{n} erlaubte Hosts',
   'admin.plugins.operatorEgressPill': '+ von dir ergänzte Hosts',
-  'admin.plugins.operatorEgressHint': 'Dieses Plugin spricht mit einem Dienst, den nur du benennen kannst (ein selbst gehosteter Server). Füge nach der Installation unter ⋯ → Erlaubte Hosts die erreichbaren Hosts hinzu. Andere erreicht es nicht.',
+  'admin.plugins.operatorEgressHint':
+    'Dieses Plugin spricht mit einem Dienst, den nur du benennen kannst (ein selbst gehosteter Server). Füge nach der Installation unter ⋯ → Erlaubte Hosts die erreichbaren Hosts hinzu. Andere erreicht es nicht.',
   'admin.plugins.noErrors': 'Keine Fehler protokolliert.',
   'admin.plugins.uninstalled': 'Plugin deinstalliert',
   'admin.plugins.uninstallTitle': 'Plugin deinstallieren?',
@@ -633,5 +637,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     'Der neue Nutzer wird automatisch zu diesem Trip hinzugefügt, wenn er sich über den Link registriert.',
   'admin.invite.boundTo': 'fügt zu {trip} hinzu',
+  'admin.ldap.defaultMethod': 'LDAP Standard-Anmeldemethode',
+  'admin.ldap.defaultMethodHint': 'Legt fest, welche Anmeldemethode auf der Login-Seite vorausgewählt ist.',
+  'admin.ldap.method.ldap': 'Nur LDAP — Benutzer melden sich mit LDAP-Zugangsdaten an',
+  'admin.ldap.method.local': 'Nur lokal — Benutzer melden sich mit lokalem Passwort an',
+  'admin.ldap.method.both': 'Beides — Benutzer können zwischen LDAP und lokalem Login wählen',
 };
 export default admin;

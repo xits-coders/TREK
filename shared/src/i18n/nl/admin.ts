@@ -188,14 +188,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Foutenlog bekijken',
   'admin.plugins.errorLog': 'Foutenlog',
   'admin.plugins.allowedHosts': 'Toegestane hosts',
-  'admin.plugins.allowedHosts.hint': 'Deze plug-in praat met een dienst die alleen jij kunt benoemen (een zelf-gehoste server). Voeg de hosts toe die hij mag bereiken — andere bereikt hij niet.',
+  'admin.plugins.allowedHosts.hint':
+    'Deze plug-in praat met een dienst die alleen jij kunt benoemen (een zelf-gehoste server). Voeg de hosts toe die hij mag bereiken — andere bereikt hij niet.',
   'admin.plugins.allowedHosts.none': 'Nog geen hosts toegevoegd.',
-  'admin.plugins.allowedHosts.unsupported': 'Deze plug-in gebruikt geen door de beheerder opgegeven hosts. De toegestane hosts staan vast in het manifest.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Deze plug-in gebruikt geen door de beheerder opgegeven hosts. De toegestane hosts staan vast in het manifest.',
   'admin.plugins.allowedHosts.restartNote': 'Opslaan herstart de plug-in zodat de nieuwe lijst wordt opgepakt.',
   'admin.plugins.allowedHosts.add': 'Toegestane host toevoegen',
   'admin.plugins.allowedHosts.count': '{n} toegestane host(s)',
   'admin.plugins.operatorEgressPill': '+ hosts die jij toevoegt',
-  'admin.plugins.operatorEgressHint': 'Deze plug-in praat met een dienst die alleen jij kunt benoemen (een zelf-gehoste server). Voeg na installatie de bereikbare hosts toe via ⋯ → Toegestane hosts. Andere bereikt hij niet.',
+  'admin.plugins.operatorEgressHint':
+    'Deze plug-in praat met een dienst die alleen jij kunt benoemen (een zelf-gehoste server). Voeg na installatie de bereikbare hosts toe via ⋯ → Toegestane hosts. Andere bereikt hij niet.',
   'admin.plugins.noErrors': 'Geen fouten geregistreerd.',
   'admin.plugins.uninstalled': 'Plugin verwijderd',
   'admin.plugins.uninstallTitle': 'Plugin verwijderen?',
@@ -634,5 +637,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     'De nieuwe gebruiker wordt automatisch aan deze reis toegevoegd wanneer hij zich via de link registreert.',
   'admin.invite.boundTo': 'voegt toe aan {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

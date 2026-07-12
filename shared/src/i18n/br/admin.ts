@@ -185,14 +185,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Ver registro de erros',
   'admin.plugins.errorLog': 'Registro de erros',
   'admin.plugins.allowedHosts': 'Hosts permitidos',
-  'admin.plugins.allowedHosts.hint': 'Este plugin fala com um serviço que só você pode nomear (um servidor auto-hospedado). Adicione os hosts que ele pode alcançar — nenhum outro.',
+  'admin.plugins.allowedHosts.hint':
+    'Este plugin fala com um serviço que só você pode nomear (um servidor auto-hospedado). Adicione os hosts que ele pode alcançar — nenhum outro.',
   'admin.plugins.allowedHosts.none': 'Nenhum host adicionado ainda.',
-  'admin.plugins.allowedHosts.unsupported': 'Este plugin não usa hosts fornecidos pelo operador. Seus hosts permitidos são fixos no manifesto.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Este plugin não usa hosts fornecidos pelo operador. Seus hosts permitidos são fixos no manifesto.',
   'admin.plugins.allowedHosts.restartNote': 'Salvar reinicia o plugin para que ele use a nova lista.',
   'admin.plugins.allowedHosts.add': 'Adicionar host permitido',
   'admin.plugins.allowedHosts.count': '{n} host(s) permitido(s)',
   'admin.plugins.operatorEgressPill': '+ hosts que você adicionar',
-  'admin.plugins.operatorEgressHint': 'Este plugin fala com um serviço que só você pode nomear (um servidor auto-hospedado). Após instalar, adicione os hosts que ele pode alcançar em ⋯ → Hosts permitidos. Nenhum outro.',
+  'admin.plugins.operatorEgressHint':
+    'Este plugin fala com um serviço que só você pode nomear (um servidor auto-hospedado). Após instalar, adicione os hosts que ele pode alcançar em ⋯ → Hosts permitidos. Nenhum outro.',
   'admin.plugins.noErrors': 'Nenhum erro registrado.',
   'admin.plugins.uninstalled': 'Plugin desinstalado',
   'admin.plugins.uninstallTitle': 'Desinstalar plugin?',
@@ -625,5 +628,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Nenhuma viagem',
   'admin.invite.tripHint': 'O novo usuário é adicionado automaticamente a esta viagem ao se registrar pelo link.',
   'admin.invite.boundTo': 'adiciona a {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

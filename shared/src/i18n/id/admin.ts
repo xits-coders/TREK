@@ -230,14 +230,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Lihat log error',
   'admin.plugins.errorLog': 'Log error',
   'admin.plugins.allowedHosts': 'Host yang diizinkan',
-  'admin.plugins.allowedHosts.hint': 'Plugin ini berbicara dengan layanan yang hanya Anda yang tahu namanya (server swakelola). Tambahkan host yang boleh dijangkau — selain itu tidak bisa.',
+  'admin.plugins.allowedHosts.hint':
+    'Plugin ini berbicara dengan layanan yang hanya Anda yang tahu namanya (server swakelola). Tambahkan host yang boleh dijangkau — selain itu tidak bisa.',
   'admin.plugins.allowedHosts.none': 'Belum ada host yang ditambahkan.',
-  'admin.plugins.allowedHosts.unsupported': 'Plugin ini tidak memakai host dari operator. Host yang diizinkan sudah tetap di manifesnya.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Plugin ini tidak memakai host dari operator. Host yang diizinkan sudah tetap di manifesnya.',
   'admin.plugins.allowedHosts.restartNote': 'Menyimpan akan memulai ulang plugin agar memakai daftar baru.',
   'admin.plugins.allowedHosts.add': 'Tambah host yang diizinkan',
   'admin.plugins.allowedHosts.count': '{n} host diizinkan',
   'admin.plugins.operatorEgressPill': '+ host yang Anda tambahkan',
-  'admin.plugins.operatorEgressHint': 'Plugin ini berbicara dengan layanan yang hanya Anda yang tahu namanya (server swakelola). Setelah dipasang, tambahkan host di ⋯ → Host yang diizinkan. Selain itu tidak bisa.',
+  'admin.plugins.operatorEgressHint':
+    'Plugin ini berbicara dengan layanan yang hanya Anda yang tahu namanya (server swakelola). Setelah dipasang, tambahkan host di ⋯ → Host yang diizinkan. Selain itu tidak bisa.',
   'admin.plugins.noErrors': 'Tidak ada error yang tercatat.',
   'admin.plugins.uninstalled': 'Plugin dihapus',
   'admin.plugins.uninstallTitle': 'Hapus plugin?',
@@ -635,5 +638,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Tanpa perjalanan',
   'admin.invite.tripHint': 'Pengguna baru otomatis ditambahkan ke perjalanan ini saat mereka mendaftar melalui tautan.',
   'admin.invite.boundTo': 'menambahkan ke {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

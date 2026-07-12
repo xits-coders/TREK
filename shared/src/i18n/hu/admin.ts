@@ -188,14 +188,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Hibanapló megtekintése',
   'admin.plugins.errorLog': 'Hibanapló',
   'admin.plugins.allowedHosts': 'Engedélyezett hosztok',
-  'admin.plugins.allowedHosts.hint': 'Ez a bővítmény olyan szolgáltatással kommunikál, amelyet csak te tudsz megnevezni (saját üzemeltetésű kiszolgáló). Add meg a hosztokat, amelyeket elérhet — másokat nem.',
+  'admin.plugins.allowedHosts.hint':
+    'Ez a bővítmény olyan szolgáltatással kommunikál, amelyet csak te tudsz megnevezni (saját üzemeltetésű kiszolgáló). Add meg a hosztokat, amelyeket elérhet — másokat nem.',
   'admin.plugins.allowedHosts.none': 'Még nincs hozzáadott hoszt.',
-  'admin.plugins.allowedHosts.unsupported': 'Ez a bővítmény nem használ üzemeltető által megadott hosztokat. Az engedélyezett hosztjai a manifestben rögzítettek.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Ez a bővítmény nem használ üzemeltető által megadott hosztokat. Az engedélyezett hosztjai a manifestben rögzítettek.',
   'admin.plugins.allowedHosts.restartNote': 'A mentés újraindítja a bővítményt, hogy átvegye az új listát.',
   'admin.plugins.allowedHosts.add': 'Engedélyezett hoszt hozzáadása',
   'admin.plugins.allowedHosts.count': '{n} engedélyezett hoszt',
   'admin.plugins.operatorEgressPill': '+ általad hozzáadott hosztok',
-  'admin.plugins.operatorEgressHint': 'Ez a bővítmény olyan szolgáltatással kommunikál, amelyet csak te tudsz megnevezni (saját üzemeltetésű kiszolgáló). Telepítés után add meg a hosztokat a ⋯ → Engedélyezett hosztok alatt. Másokat nem ér el.',
+  'admin.plugins.operatorEgressHint':
+    'Ez a bővítmény olyan szolgáltatással kommunikál, amelyet csak te tudsz megnevezni (saját üzemeltetésű kiszolgáló). Telepítés után add meg a hosztokat a ⋯ → Engedélyezett hosztok alatt. Másokat nem ér el.',
   'admin.plugins.noErrors': 'Nincsenek naplózott hibák.',
   'admin.plugins.uninstalled': 'Plugin eltávolítva',
   'admin.plugins.uninstallTitle': 'Plugin eltávolítása?',
@@ -640,5 +643,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     'Az új felhasználó automatikusan hozzáadódik ehhez az utazáshoz, amikor a linken keresztül regisztrál.',
   'admin.invite.boundTo': 'hozzáadja a következőhöz: {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

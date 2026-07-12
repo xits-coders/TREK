@@ -186,14 +186,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Zobrazit protokol chyb',
   'admin.plugins.errorLog': 'Protokol chyb',
   'admin.plugins.allowedHosts': 'Povolení hostitelé',
-  'admin.plugins.allowedHosts.hint': 'Tento plugin komunikuje se službou, kterou umíš pojmenovat jen ty (self-hosted server). Přidej hostitele, na které smí — na jiné se nedostane.',
+  'admin.plugins.allowedHosts.hint':
+    'Tento plugin komunikuje se službou, kterou umíš pojmenovat jen ty (self-hosted server). Přidej hostitele, na které smí — na jiné se nedostane.',
   'admin.plugins.allowedHosts.none': 'Zatím nebyli přidáni žádní hostitelé.',
-  'admin.plugins.allowedHosts.unsupported': 'Tento plugin nepoužívá hostitele zadané provozovatelem. Povolení hostitelé jsou pevně dáni v manifestu.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Tento plugin nepoužívá hostitele zadané provozovatelem. Povolení hostitelé jsou pevně dáni v manifestu.',
   'admin.plugins.allowedHosts.restartNote': 'Uložení restartuje plugin, aby načetl nový seznam.',
   'admin.plugins.allowedHosts.add': 'Přidat povoleného hostitele',
   'admin.plugins.allowedHosts.count': '{n} povolených hostitelů',
   'admin.plugins.operatorEgressPill': '+ hostitelé, které přidáš',
-  'admin.plugins.operatorEgressHint': 'Tento plugin komunikuje se službou, kterou umíš pojmenovat jen ty (self-hosted server). Po instalaci přidej hostitele v ⋯ → Povolení hostitelé. Na jiné se nedostane.',
+  'admin.plugins.operatorEgressHint':
+    'Tento plugin komunikuje se službou, kterou umíš pojmenovat jen ty (self-hosted server). Po instalaci přidej hostitele v ⋯ → Povolení hostitelé. Na jiné se nedostane.',
   'admin.plugins.noErrors': 'Žádné zaznamenané chyby.',
   'admin.plugins.uninstalled': 'Plugin odinstalován',
   'admin.plugins.uninstallTitle': 'Odinstalovat plugin?',
@@ -620,5 +623,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Žádná cesta',
   'admin.invite.tripHint': 'Nový uživatel bude po registraci přes odkaz automaticky přidán k této cestě.',
   'admin.invite.boundTo': 'přidá k {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

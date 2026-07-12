@@ -187,14 +187,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Ver registro de errores',
   'admin.plugins.errorLog': 'Registro de errores',
   'admin.plugins.allowedHosts': 'Hosts permitidos',
-  'admin.plugins.allowedHosts.hint': 'Este plugin se comunica con un servicio que solo tú puedes nombrar (un servidor autoalojado). Añade los hosts a los que puede acceder — no accederá a ningún otro.',
+  'admin.plugins.allowedHosts.hint':
+    'Este plugin se comunica con un servicio que solo tú puedes nombrar (un servidor autoalojado). Añade los hosts a los que puede acceder — no accederá a ningún otro.',
   'admin.plugins.allowedHosts.none': 'Aún no se han añadido hosts.',
-  'admin.plugins.allowedHosts.unsupported': 'Este plugin no usa hosts proporcionados por el operador. Sus hosts permitidos están fijados en su manifiesto.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Este plugin no usa hosts proporcionados por el operador. Sus hosts permitidos están fijados en su manifiesto.',
   'admin.plugins.allowedHosts.restartNote': 'Al guardar se reinicia el plugin para que tome la nueva lista.',
   'admin.plugins.allowedHosts.add': 'Añadir host permitido',
   'admin.plugins.allowedHosts.count': '{n} host(s) permitido(s)',
   'admin.plugins.operatorEgressPill': '+ hosts que añadas',
-  'admin.plugins.operatorEgressHint': 'Este plugin se comunica con un servicio que solo tú puedes nombrar (un servidor autoalojado). Tras instalarlo, añade los hosts a los que puede acceder en ⋯ → Hosts permitidos. No accederá a ningún otro.',
+  'admin.plugins.operatorEgressHint':
+    'Este plugin se comunica con un servicio que solo tú puedes nombrar (un servidor autoalojado). Tras instalarlo, añade los hosts a los que puede acceder en ⋯ → Hosts permitidos. No accederá a ningún otro.',
   'admin.plugins.noErrors': 'No hay errores registrados.',
   'admin.plugins.uninstalled': 'Plugin desinstalado',
   'admin.plugins.uninstallTitle': '¿Desinstalar el plugin?',
@@ -642,5 +645,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripHint':
     'El nuevo usuario se añade automáticamente a este viaje cuando se registra mediante el enlace.',
   'admin.invite.boundTo': 'se añade a {trip}',
+  'admin.ldap.defaultMethod': 'Método de inicio de sesión LDAP predeterminado',
+  'admin.ldap.defaultMethodHint': 'Controla qué método de inicio de sesión está preseleccionado.',
+  'admin.ldap.method.ldap': 'Solo LDAP',
+  'admin.ldap.method.local': 'Solo local',
+  'admin.ldap.method.both': 'Ambos',
 };
 export default admin;
