@@ -188,14 +188,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Показать журнал ошибок',
   'admin.plugins.errorLog': 'Журнал ошибок',
   'admin.plugins.allowedHosts': 'Разрешённые хосты',
-  'admin.plugins.allowedHosts.hint': 'Этот плагин обращается к сервису, который можете указать только вы (self-hosted сервер). Добавьте хосты, к которым он может обращаться — к другим он не сможет.',
+  'admin.plugins.allowedHosts.hint':
+    'Этот плагин обращается к сервису, который можете указать только вы (self-hosted сервер). Добавьте хосты, к которым он может обращаться — к другим он не сможет.',
   'admin.plugins.allowedHosts.none': 'Хосты пока не добавлены.',
-  'admin.plugins.allowedHosts.unsupported': 'Этот плагин не использует хосты, задаваемые оператором. Его разрешённые хосты зафиксированы в манифесте.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Этот плагин не использует хосты, задаваемые оператором. Его разрешённые хосты зафиксированы в манифесте.',
   'admin.plugins.allowedHosts.restartNote': 'Сохранение перезапускает плагин, чтобы он подхватил новый список.',
   'admin.plugins.allowedHosts.add': 'Добавить разрешённый хост',
   'admin.plugins.allowedHosts.count': 'Разрешённых хостов: {n}',
   'admin.plugins.operatorEgressPill': '+ добавленные вами хосты',
-  'admin.plugins.operatorEgressHint': 'Этот плагин обращается к сервису, который можете указать только вы (self-hosted сервер). После установки добавьте хосты в ⋯ → Разрешённые хосты. К другим он не сможет обратиться.',
+  'admin.plugins.operatorEgressHint':
+    'Этот плагин обращается к сервису, который можете указать только вы (self-hosted сервер). После установки добавьте хосты в ⋯ → Разрешённые хосты. К другим он не сможет обратиться.',
   'admin.plugins.noErrors': 'Ошибок не зафиксировано.',
   'admin.plugins.uninstalled': 'Плагин удалён',
   'admin.plugins.uninstallTitle': 'Удалить плагин?',
@@ -633,5 +636,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Без поездки',
   'admin.invite.tripHint': 'Новый пользователь автоматически добавляется в эту поездку при регистрации по ссылке.',
   'admin.invite.boundTo': 'добавляет в {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

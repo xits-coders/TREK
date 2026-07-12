@@ -188,14 +188,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Переглянути журнал помилок',
   'admin.plugins.errorLog': 'Журнал помилок',
   'admin.plugins.allowedHosts': 'Дозволені хости',
-  'admin.plugins.allowedHosts.hint': 'Цей плагін звертається до сервісу, який можете вказати лише ви (self-hosted сервер). Додайте хости, до яких він може звертатися — до інших він не зможе.',
+  'admin.plugins.allowedHosts.hint':
+    'Цей плагін звертається до сервісу, який можете вказати лише ви (self-hosted сервер). Додайте хости, до яких він може звертатися — до інших він не зможе.',
   'admin.plugins.allowedHosts.none': 'Хости ще не додано.',
-  'admin.plugins.allowedHosts.unsupported': 'Цей плагін не використовує хости, задані оператором. Його дозволені хости зафіксовані в маніфесті.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Цей плагін не використовує хости, задані оператором. Його дозволені хости зафіксовані в маніфесті.',
   'admin.plugins.allowedHosts.restartNote': 'Збереження перезапускає плагін, щоб він підхопив новий список.',
   'admin.plugins.allowedHosts.add': 'Додати дозволений хост',
   'admin.plugins.allowedHosts.count': 'Дозволених хостів: {n}',
   'admin.plugins.operatorEgressPill': '+ додані вами хости',
-  'admin.plugins.operatorEgressHint': 'Цей плагін звертається до сервісу, який можете вказати лише ви (self-hosted сервер). Після встановлення додайте хости в ⋯ → Дозволені хости. До інших він не зможе звертатися.',
+  'admin.plugins.operatorEgressHint':
+    'Цей плагін звертається до сервісу, який можете вказати лише ви (self-hosted сервер). Після встановлення додайте хости в ⋯ → Дозволені хости. До інших він не зможе звертатися.',
   'admin.plugins.noErrors': 'Помилок не зафіксовано.',
   'admin.plugins.uninstalled': 'Плагін видалено',
   'admin.plugins.uninstallTitle': 'Видалити плагін?',
@@ -630,5 +633,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Без подорожі',
   'admin.invite.tripHint': 'Новий користувач автоматично додається до цієї подорожі, коли реєструється за посиланням.',
   'admin.invite.boundTo': 'додає до {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

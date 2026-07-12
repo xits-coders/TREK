@@ -243,14 +243,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Xem nhật ký lỗi',
   'admin.plugins.errorLog': 'Nhật ký lỗi',
   'admin.plugins.allowedHosts': 'Máy chủ được phép',
-  'admin.plugins.allowedHosts.hint': 'Plugin này kết nối tới một dịch vụ mà chỉ bạn mới biết tên (máy chủ tự lưu trữ). Hãy thêm các máy chủ mà nó được phép truy cập — ngoài ra không có gì khác.',
+  'admin.plugins.allowedHosts.hint':
+    'Plugin này kết nối tới một dịch vụ mà chỉ bạn mới biết tên (máy chủ tự lưu trữ). Hãy thêm các máy chủ mà nó được phép truy cập — ngoài ra không có gì khác.',
   'admin.plugins.allowedHosts.none': 'Chưa thêm máy chủ nào.',
-  'admin.plugins.allowedHosts.unsupported': 'Plugin này không dùng máy chủ do người vận hành cung cấp. Danh sách được cố định trong manifest.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Plugin này không dùng máy chủ do người vận hành cung cấp. Danh sách được cố định trong manifest.',
   'admin.plugins.allowedHosts.restartNote': 'Lưu sẽ khởi động lại plugin để nó dùng danh sách mới.',
   'admin.plugins.allowedHosts.add': 'Thêm máy chủ được phép',
   'admin.plugins.allowedHosts.count': '{n} máy chủ được phép',
   'admin.plugins.operatorEgressPill': '+ máy chủ bạn thêm',
-  'admin.plugins.operatorEgressHint': 'Plugin này kết nối tới một dịch vụ mà chỉ bạn mới biết tên (máy chủ tự lưu trữ). Sau khi cài, hãy thêm máy chủ tại ⋯ → Máy chủ được phép. Ngoài ra không có gì khác.',
+  'admin.plugins.operatorEgressHint':
+    'Plugin này kết nối tới một dịch vụ mà chỉ bạn mới biết tên (máy chủ tự lưu trữ). Sau khi cài, hãy thêm máy chủ tại ⋯ → Máy chủ được phép. Ngoài ra không có gì khác.',
   'admin.plugins.noErrors': 'Chưa ghi nhận lỗi nào.',
   'admin.plugins.uninstalled': 'Đã gỡ cài đặt plugin',
   'admin.plugins.uninstallTitle': 'Gỡ cài đặt plugin?',
@@ -575,5 +578,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Không có chuyến đi',
   'admin.invite.tripHint': 'Người dùng mới sẽ tự động được thêm vào chuyến đi này khi họ đăng ký qua liên kết.',
   'admin.invite.boundTo': 'thêm vào {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;

@@ -181,14 +181,17 @@ const admin: TranslationStrings = {
   'admin.plugins.viewErrors': 'Pokaż dziennik błędów',
   'admin.plugins.errorLog': 'Dziennik błędów',
   'admin.plugins.allowedHosts': 'Dozwolone hosty',
-  'admin.plugins.allowedHosts.hint': 'Ta wtyczka łączy się z usługą, którą tylko Ty możesz wskazać (serwer self-hosted). Dodaj hosty, do których może sięgać — do innych nie sięgnie.',
+  'admin.plugins.allowedHosts.hint':
+    'Ta wtyczka łączy się z usługą, którą tylko Ty możesz wskazać (serwer self-hosted). Dodaj hosty, do których może sięgać — do innych nie sięgnie.',
   'admin.plugins.allowedHosts.none': 'Nie dodano jeszcze żadnych hostów.',
-  'admin.plugins.allowedHosts.unsupported': 'Ta wtyczka nie używa hostów podanych przez operatora. Jej dozwolone hosty są zapisane w manifeście.',
+  'admin.plugins.allowedHosts.unsupported':
+    'Ta wtyczka nie używa hostów podanych przez operatora. Jej dozwolone hosty są zapisane w manifeście.',
   'admin.plugins.allowedHosts.restartNote': 'Zapis restartuje wtyczkę, aby pobrała nową listę.',
   'admin.plugins.allowedHosts.add': 'Dodaj dozwolony host',
   'admin.plugins.allowedHosts.count': '{n} dozwolonych hostów',
   'admin.plugins.operatorEgressPill': '+ hosty, które dodasz',
-  'admin.plugins.operatorEgressHint': 'Ta wtyczka łączy się z usługą, którą tylko Ty możesz wskazać (serwer self-hosted). Po instalacji dodaj hosty w ⋯ → Dozwolone hosty. Do innych nie sięgnie.',
+  'admin.plugins.operatorEgressHint':
+    'Ta wtyczka łączy się z usługą, którą tylko Ty możesz wskazać (serwer self-hosted). Po instalacji dodaj hosty w ⋯ → Dozwolone hosty. Do innych nie sięgnie.',
   'admin.plugins.noErrors': 'Brak zarejestrowanych błędów.',
   'admin.plugins.uninstalled': 'Wtyczka została odinstalowana',
   'admin.plugins.uninstallTitle': 'Odinstalować wtyczkę?',
@@ -641,5 +644,10 @@ const admin: TranslationStrings = {
   'admin.invite.tripNone': 'Brak podróży',
   'admin.invite.tripHint': 'Nowy użytkownik zostanie automatycznie dodany do tej podróży po rejestracji przez link.',
   'admin.invite.boundTo': 'dodaje do {trip}',
+  'admin.ldap.defaultMethod': 'LDAP Default Login Method',
+  'admin.ldap.defaultMethodHint': 'Controls which login method is pre-selected on the login page.',
+  'admin.ldap.method.ldap': 'LDAP only — users log in with their LDAP credentials',
+  'admin.ldap.method.local': 'Local only — users log in with their local password',
+  'admin.ldap.method.both': 'Both — users can choose between LDAP and local login',
 };
 export default admin;
