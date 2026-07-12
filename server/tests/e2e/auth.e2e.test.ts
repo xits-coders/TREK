@@ -29,7 +29,7 @@ vi.mock('../../src/services/notifications', () => ({ getAppUrl: () => 'https://x
 
 const { authSvc } = vi.hoisted(() => ({
   authSvc: {
-    getAppConfig: vi.fn(), demoLogin: vi.fn(), validateInviteToken: vi.fn(), registerUser: vi.fn(), loginUser: vi.fn(), ldapLoginUser: vi.fn(),
+    getAppConfig: vi.fn(), demoLogin: vi.fn(), validateInviteToken: vi.fn(), registerUser: vi.fn(), loginUser: vi.fn(), ldapLoginUser: vi.fn(), ldapLoginUser: vi.fn(),
     requestPasswordReset: vi.fn(), resetPassword: vi.fn(), verifyMfaLogin: vi.fn(), getCurrentUser: vi.fn(),
     changePassword: vi.fn(), deleteAccount: vi.fn(), updateMapsKey: vi.fn(), updateApiKeys: vi.fn(), updateSettings: vi.fn(),
     getSettings: vi.fn(), saveAvatar: vi.fn(), deleteAvatar: vi.fn(), listUsers: vi.fn(), validateKeys: vi.fn(),

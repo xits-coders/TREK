@@ -222,6 +222,69 @@ export default function AdminSettingsTab({ admin, t }: AdminSettingsTabProps): R
         </div>
       )}
 
+      {/* LDAP default login method */}
+      {ldapConfigured && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-slate-900">{t('admin.ldap.defaultMethod')}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{t('admin.ldap.defaultMethodHint')}</p>
+          </div>
+          <div className="p-6 flex flex-col gap-3">
+            {(['ldap', 'local', 'both'] as const).map((method) => (
+              <label key={method} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="ldap_default_method"
+                  value={method}
+                  checked={ldapDefaultMethod === method}
+                  onChange={() => {
+                    setLdapDefaultMethod(method)
+                    handleToggleAuthSetting('ldap_default_method', method, () => {})
+                  }}
+                  className="accent-slate-900"
+                />
+                <span className="text-sm font-medium text-slate-700">{t(`admin.ldap.method.${method}`)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* LDAP default login method */}
+      {ldapConfigured && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-slate-900">{t('admin.ldap.defaultMethod')}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{t('admin.ldap.defaultMethodHint')}</p>
+          </div>
+          <div className="p-6 flex flex-col gap-3">
+            {(['ldap', 'local', 'both'] as const).map((method) => (
+              <label key={method} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="ldap_default_method"
+                  value={method}
+                  checked={ldapDefaultMethod === method}
+                  onChange={async () => {
+                    setLdapDefaultMethod(method)
+                    try {
+                      await fetch('/api/admin/settings', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ ldap_default_method: method }),
+                      })
+                    } catch { /* ignore */ }
+                  }}
+                  className="accent-slate-900"
+                />
+                <span className="text-sm font-medium text-slate-700">{t(`admin.ldap.method.${method}`)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Require 2FA for all users */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100">

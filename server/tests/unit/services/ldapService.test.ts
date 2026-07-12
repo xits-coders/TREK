@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock ldapts Client — defined inside factory because vi.mock is hoisted
 const mockBind   = vi.fn();
 const mockSearch = vi.fn();
 const mockUnbind = vi.fn();
@@ -20,7 +19,6 @@ vi.mock('node:fs', () => ({ default: { readFileSync: vi.fn(() => Buffer.from('ca
 
 import { getLdapConfig, ldapAuthenticate } from '../../../src/services/ldapService';
 
-// ── getLdapConfig ─────────────────────────────────────────────────────────────
 describe('getLdapConfig', () => {
   afterEach(() => { delete process.env.LDAP_URL; });
 
@@ -30,10 +28,10 @@ describe('getLdapConfig', () => {
   });
 
   it('returns config object when LDAP_URL is set', () => {
-    process.env.LDAP_URL        = 'ldaps://ipa.example.com:636';
-    process.env.LDAP_BIND_DN    = 'uid=bind,dc=example,dc=com';
-    process.env.LDAP_BIND_PW    = 'secret';
-    process.env.LDAP_BASE       = 'dc=example,dc=com';
+    process.env.LDAP_URL          = 'ldaps://ipa.example.com:636';
+    process.env.LDAP_BIND_DN      = 'uid=bind,dc=example,dc=com';
+    process.env.LDAP_BIND_PW      = 'secret';
+    process.env.LDAP_BASE         = 'dc=example,dc=com';
     process.env.LDAP_ADMIN_GROUP  = 'cn=admins,dc=example,dc=com';
     process.env.LDAP_ALLOWED_GROUP = 'cn=users,dc=example,dc=com';
     const cfg = getLdapConfig();
@@ -43,7 +41,6 @@ describe('getLdapConfig', () => {
   });
 });
 
-// ── ldapAuthenticate ──────────────────────────────────────────────────────────
 describe('ldapAuthenticate', () => {
   beforeEach(() => {
     process.env.LDAP_URL     = 'ldaps://ipa.example.com:636';
@@ -67,30 +64,25 @@ describe('ldapAuthenticate', () => {
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({ searchEntries: [] });
     mockUnbind.mockResolvedValue(undefined);
-    const result = await ldapAuthenticate('nobody', 'pw');
-    expect(result).toBeNull();
+    expect(await ldapAuthenticate('nobody', 'pw')).toBeNull();
   });
 
   it('returns null on invalid credentials', async () => {
     const { InvalidCredentialsError } = await import('ldapts');
     mockBind
-      .mockResolvedValueOnce(undefined)   // service bind ok
-      .mockRejectedValueOnce(new InvalidCredentialsError('invalid')); // user bind fails
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new InvalidCredentialsError('invalid'));
     mockSearch.mockResolvedValue({
       searchEntries: [{ dn: 'uid=alice,dc=example,dc=com', uid: 'alice', mail: 'alice@example.com', cn: 'Alice' }],
     });
     mockUnbind.mockResolvedValue(undefined);
-    const result = await ldapAuthenticate('alice', 'wrongpw');
-    expect(result).toBeNull();
+    expect(await ldapAuthenticate('alice', 'wrongpw')).toBeNull();
   });
 
-  it('returns LdapUser with role user on successful bind', async () => {
+  it('returns LdapUser with isAdmin=false on successful bind', async () => {
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({
-      searchEntries: [{
-        dn: 'uid=alice,dc=example,dc=com',
-        uid: 'alice', mail: 'alice@example.com', cn: 'Alice', memberOf: [],
-      }],
+      searchEntries: [{ dn: 'uid=alice,dc=example,dc=com', uid: 'alice', mail: 'alice@example.com', cn: 'Alice', memberOf: [] }],
     });
     mockUnbind.mockResolvedValue(undefined);
     const result = await ldapAuthenticate('alice', 'correctpw');
@@ -103,30 +95,20 @@ describe('ldapAuthenticate', () => {
     process.env.LDAP_ADMIN_GROUP = 'cn=trek-admins,dc=example,dc=com';
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({
-      searchEntries: [{
-        dn: 'uid=bob,dc=example,dc=com',
-        uid: 'bob', mail: 'bob@example.com', cn: 'Bob',
-        memberOf: ['cn=trek-admins,dc=example,dc=com'],
-      }],
+      searchEntries: [{ dn: 'uid=bob,dc=example,dc=com', uid: 'bob', mail: 'bob@example.com', cn: 'Bob', memberOf: ['cn=trek-admins,dc=example,dc=com'] }],
     });
     mockUnbind.mockResolvedValue(undefined);
-    const result = await ldapAuthenticate('bob', 'pw');
-    expect(result!.isAdmin).toBe(true);
+    expect((await ldapAuthenticate('bob', 'pw'))!.isAdmin).toBe(true);
   });
 
   it('returns null when user not in allowedGroup', async () => {
     process.env.LDAP_ALLOWED_GROUP = 'cn=trek-users,dc=example,dc=com';
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({
-      searchEntries: [{
-        dn: 'uid=eve,dc=example,dc=com',
-        uid: 'eve', mail: 'eve@example.com', cn: 'Eve',
-        memberOf: ['cn=other-group,dc=example,dc=com'],
-      }],
+      searchEntries: [{ dn: 'uid=eve,dc=example,dc=com', uid: 'eve', mail: 'eve@example.com', cn: 'Eve', memberOf: ['cn=other,dc=example,dc=com'] }],
     });
     mockUnbind.mockResolvedValue(undefined);
-    const result = await ldapAuthenticate('eve', 'pw');
-    expect(result).toBeNull();
+    expect(await ldapAuthenticate('eve', 'pw')).toBeNull();
   });
 
   it('allows admin through even without allowedGroup membership', async () => {
@@ -134,11 +116,7 @@ describe('ldapAuthenticate', () => {
     process.env.LDAP_ALLOWED_GROUP = 'cn=trek-users,dc=example,dc=com';
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({
-      searchEntries: [{
-        dn: 'uid=admin,dc=example,dc=com',
-        uid: 'admin', mail: 'admin@example.com', cn: 'Admin',
-        memberOf: ['cn=trek-admins,dc=example,dc=com'],
-      }],
+      searchEntries: [{ dn: 'uid=admin,dc=example,dc=com', uid: 'admin', mail: 'admin@example.com', cn: 'Admin', memberOf: ['cn=trek-admins,dc=example,dc=com'] }],
     });
     mockUnbind.mockResolvedValue(undefined);
     const result = await ldapAuthenticate('admin', 'pw');
@@ -150,10 +128,8 @@ describe('ldapAuthenticate', () => {
     mockBind.mockResolvedValue(undefined);
     mockSearch.mockResolvedValue({ searchEntries: [] });
     mockUnbind.mockResolvedValue(undefined);
-    // Should not throw — just return null (user not found after escaping)
     const result = await ldapAuthenticate('admin)(uid=*', 'pw');
     expect(result).toBeNull();
-    // Verify the filter passed to search was escaped
     const callArg = mockSearch.mock.calls[0][1].filter as string;
     expect(callArg).not.toContain(')(');
   });
