@@ -2,6 +2,8 @@
 
 Log flights, trains, car rentals, and cruises with departure and arrival endpoints, times, and transit-specific details.
 
+![Transports tab listing a confirmed flight card with its day range, times, booking code, airport endpoints, airline and flight number](assets/Transports.png)
+
 ## Where to create
 
 Open the **Transports** tab in the trip planner and click **Add**, or open the planner from a day view and use the transport shortcut. Transport records appear in the [Reservations](Reservations-and-Bookings) panel alongside other bookings.
@@ -52,7 +54,7 @@ Once you select an airport, the **timezone** for that airport appears next to th
 
 Departure and arrival fields use the **generic location picker** — search by place name or enter a free-text location. Results come from the maps search service.
 
-For **car rentals**, the departure field is labelled **Pickup date/time** and the arrival field is labelled **Return date/time**.
+If you use **car rentals** instead of your own Car, the departure field is labelled **Pickup date/time** and the arrival field is labelled **Return date/time**.
 
 ## Flight-specific fields
 
@@ -90,7 +92,7 @@ When a transport is assigned to a day, it appears inline in the day timeline bet
 | Type | Start day | Middle days | End day |
 |------|-----------|-------------|---------|
 | Flight | Departure | In transit | Arrival |
-| Car rental | Pickup | Active | Return |
+| Car / Car rental | Pickup | Active | Return |
 | Train / Cruise | Start | Ongoing | End |
 
 A **multi-leg train** (and a multi-leg flight) instead shows **one row per leg**, each slotting into its own day at its own time and independently reorderable, rather than a single spanning row.
